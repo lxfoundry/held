@@ -1,0 +1,95 @@
+# ============================================================
+# held .gitignore
+# This repository is published open source. Nothing secret is
+# ever committed: when in doubt, add the pattern here first.
+# ============================================================
+
+# --- Secrets & credentials (never commit, no exceptions) ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+*.keystore
+secrets/
+credentials/
+*credentials*.json
+*secret*
+!*secret*.example
+
+# --- Wallets, mnemonics, EVM key material ---
+*.mnemonic
+*mnemonic*
+*.wallet
+wallets/
+keystore/
+.openzeppelin/unknown-*.json
+
+# --- Local working notes ---
+notes/
+scratch/
+private/
+.superpowers/
+*.private.md
+CLAUDE.local.md
+.claude/settings.local.json
+.claude/*.local.*
+
+# --- Node / TypeScript ---
+node_modules/
+dist/
+build/
+out/
+.next/
+.turbo/
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.npmrc
+.pnpm-store/
+
+# --- Contracts (Hardhat / Foundry) ---
+artifacts/
+cache/
+cache_forge/
+typechain/
+typechain-types/
+broadcast/
+deployments/localhost/
+
+# --- Test & runtime output ---
+*.log
+logs/
+tmp/
+.tmp/
+*.sqlite
+*.db
+data/
+test-results/
+playwright-report/
+coverage/
+.nyc_output/
+.cache/
+
+# --- Local tunnels and webhook capture (Ship24 development) ---
+webhook-tunnel.log
+.ngrok*
+
+# --- Editors & OS ---
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+*~
+
+# --- Local deployment state ---
+deploy-state.local.json
+*.deploy.local.*
