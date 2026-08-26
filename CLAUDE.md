@@ -135,14 +135,27 @@ Directory names are settled when the build plan lands. Two paths are fixed now:
 
 ## Toolchain
 
-Built on the existing Boson MCP server layer — **BosonMCP** (`create_offer_and_commit`,
-`redeem_voucher`, `raise_dispute`, meta-transactions), **WalletMCP** (ethers v6, EIP-712 typed-data
-signing) and **BuyerDataMCP** (personal data, shipping address, requirements, selected quote).
-These are finished and tested. **Rebuild nothing** — this repo is add-ons only: agents, apps, and
-new contracts only if something is genuinely required at chain level.
+**Boson Core SDK, called directly.** Every chain interaction — seller account creation, offer
+signing, the atomic create-commit-redeem meta-transaction, raising a dispute, mutual resolution —
+goes through `@bosonprotocol/core-sdk` and its relayer. The offer flow is specified in
+[`docs/specs/offer-model.md`](./docs/specs/offer-model.md).
 
-`.mcp.json` is **not written yet**. When it is, it lives at this repository root, because
-`.mcp.json` is read from the project root only.
+⚠️ **No MCP tool surface for chain access, and that is deliberate.** MCP exists to give an *agent* a
+set of tools. Nothing here is an agent that needs to touch the chain: the buyer interface is a view,
+the seller side is scripted, and the oracle adapter and watchdog are a service driven by webhooks and
+a clock.
+
+⭐ The two components that *are* model-driven — the mediator and the clerk — **must not have
+chain-calling tools at all.** That is what makes the bounded action space above a property of the
+architecture rather than of a prompt. **No AI component may be given a tool that can move funds**,
+and no MCP server may be introduced to give one.
+
+**Rebuild nothing** — this repo is add-ons only: agents, apps, and new contracts only if something is
+genuinely required at chain level.
+
+`.mcp.json` is **not written yet and is not needed to build**. If one is ever added it is for local
+development tooling only (e.g. querying the subgraph while debugging), never for a runtime code path,
+and it lives at this repository root because `.mcp.json` is read from the project root only.
 
 ## Rules
 
