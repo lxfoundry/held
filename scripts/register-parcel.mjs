@@ -44,7 +44,7 @@ const courierCode = courierArg || "gb-post";
 
 let env;
 try {
-  env = loadEnv({ required: ["SHIP24_API_KEY"] });
+  env = loadEnv({ required: ["SHIP24_API_KEY"], only: ["SHIP24_API_KEY", "SHIP24_API_BASE"] });
 } catch (err) {
   fail(err.message);
 }

@@ -13,13 +13,17 @@
 // Events are scrubbed on the way in, by the store, exactly as pushed ones are.
 
 import { join } from "node:path";
-import { readdirSync } from "node:fs";
 import { loadEnv, ROOT } from "../src/env.mjs";
 import { createStore } from "../src/store.mjs";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const env = loadEnv({ required: ["SHIP24_API_KEY"] });
+// Only what this script needs: it talks to the tracking provider and writes
+// the store, and has no business holding wallet keys.
+const env = loadEnv({
+  required: ["SHIP24_API_KEY"],
+  only: ["SHIP24_API_KEY", "SHIP24_API_BASE", "EVENTS_DIR", "RETAIN_LOCATIONS"],
+});
 const apiBase = (env.SHIP24_API_BASE ?? "https://api.ship24.com/public/v1").replace(/\/$/, "");
 const eventsDir = env.EVENTS_DIR ? join(ROOT, env.EVENTS_DIR) : join(ROOT, "fixtures/events");
 const store = createStore(eventsDir, { retainPlaces: env.RETAIN_LOCATIONS === "true" });
@@ -59,9 +63,7 @@ async function fetchResults(target) {
 // --all re-fetches every tracker already in the store, which is the recovery
 // case: point it at the store after any period the receiver was not running.
 function targetsFromStore() {
-  return readdirSync(eventsDir)
-    .filter((f) => f.endsWith(".json") && !f.endsWith(".tmp"))
-    .map((f) => f.replace(/\.json$/, ""));
+  return store.trackerIds();
 }
 
 const targets = argv.includes("--all") ? targetsFromStore() : argv.filter((a) => !a.startsWith("--"));

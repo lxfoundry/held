@@ -24,15 +24,26 @@ const UK_POSTCODE = /\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b/gi;
 const POSTCODE_PLACEHOLDER = "[postcode]";
 
 // Nulled wherever they appear, whatever the surrounding shape.
+// Not "state": in a courier payload that is far more often a status than a
+// region, and nulling it would quietly damage data this system reads.
 const SENSITIVE_KEYS = new Set([
   "name",
   "address",
   "address1",
   "address2",
+  "addressLine1",
+  "addressLine2",
+  "line1",
+  "line2",
+  "street",
+  "houseNumber",
   "postCode",
   "postcode",
   "zip",
   "city",
+  "county",
+  "region",
+  "province",
   "subdivision",
   "signedBy",
   "phone",

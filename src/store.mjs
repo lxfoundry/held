@@ -7,6 +7,10 @@
 // to date. This store is therefore a convenience and a record of when each
 // event actually arrived — not the only copy. Losing it costs nothing that a
 // fetch cannot recover.
+//
+// ⚠️ Two processes write here: the receiver and the fetch script. Every write
+// takes a per-tracker lock and uses a private temporary file, because the
+// documented recovery workflow runs the fetch script against a live receiver.
 
 import {
   appendFileSync,
@@ -14,6 +18,9 @@ import {
   readdirSync,
   readFileSync,
   renameSync,
+  rmSync,
+  statSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -23,15 +30,33 @@ import { scrub, assertClean } from "./scrub.mjs";
 // The mapping keys on statusMilestone; reading statusCode here is a defect.
 const MILESTONE_UNKNOWN = "pending";
 
+// The provider's tracker ids are UUIDs, but the id arrives in an
+// unauthenticated payload and is used to build a filename. Anything outside
+// this shape is rejected before a path is constructed: join() normalises "..",
+// so an unvalidated id is an arbitrary file write.
+const SAFE_TRACKER_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+const LOCK_STALE_MS = 30_000;
+const LOCK_RETRY_MS = 25;
+const LOCK_TIMEOUT_MS = 5_000;
+
+function timeOf(event) {
+  const raw = event?.datetime ?? event?.occurrenceDatetime;
+  const parsed = raw ? Date.parse(raw) : Number.NaN;
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
 function byDatetime(a, b) {
-  const at = Date.parse(a?.datetime ?? a?.occurrenceDatetime ?? 0) || 0;
-  const bt = Date.parse(b?.datetime ?? b?.occurrenceDatetime ?? 0) || 0;
+  const at = timeOf(a);
+  const bt = timeOf(b);
   if (at !== bt) return at - bt;
   return String(a?.eventId ?? "").localeCompare(String(b?.eventId ?? ""));
 }
 
 // Events are keyed on the provider's event id. Where one is absent, a stable
-// composite stands in, so a repeated delivery still deduplicates.
+// composite stands in, so a repeated delivery still deduplicates. Reading
+// statusCode here is identity, not mapping — the milestone rule above governs
+// what drives behaviour, and nothing here does.
 export function eventKey(event) {
   if (event?.eventId) return String(event.eventId);
   return [
@@ -39,6 +64,10 @@ export function eventKey(event) {
     event?.datetime ?? event?.occurrenceDatetime ?? "",
     event?.statusCode ?? "",
   ].join("|");
+}
+
+export function isSafeTrackerId(id) {
+  return typeof id === "string" && SAFE_TRACKER_ID.test(id) && !id.includes("..");
 }
 
 // Derived from the full event list, never from the event that happened to
@@ -64,8 +93,37 @@ export function deriveState(events = []) {
     everAvailableForPickup,
     observed: [...observed],
     eventCount: sorted.length,
-    lastEventAt: last?.datetime ?? null,
+    lastEventAt: last ? (last.datetime ?? last.occurrenceDatetime ?? null) : null,
   };
+}
+
+// Thrown when a snapshot exists but cannot be read. Never treated as "new
+// tracker": doing so would rewrite the file with only the current push, losing
+// the sticky flags the spec says are permanent.
+export class CorruptSnapshotError extends Error {
+  constructor(path, cause) {
+    super(`snapshot at ${path} exists but could not be read: ${cause}`);
+    this.name = "CorruptSnapshotError";
+    this.path = path;
+    this.permanent = true;
+  }
+}
+
+// A payload that cannot be stored no matter how many times it is redelivered.
+// Marked permanent so callers do not ask for a retry that cannot succeed.
+export class InvalidPayloadError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "InvalidPayloadError";
+    this.permanent = true;
+  }
+}
+
+// Synchronous, because ingest is synchronous end to end. That is load-bearing:
+// within one process the read-modify-write cannot interleave, so the lock below
+// only has to defend against other processes.
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
 export function createStore(dir, { retainPlaces = false } = {}) {
@@ -73,19 +131,91 @@ export function createStore(dir, { retainPlaces = false } = {}) {
 
   const snapshotPath = (trackerId) => join(dir, `${trackerId}.json`);
   const logPath = (trackerId) => join(dir, `${trackerId}.events.ndjson`);
+  const lockPath = (trackerId) => join(dir, `${trackerId}.lock`);
 
-  function read(trackerId) {
+  // mkdir is atomic across processes, needs no dependency, and leaves a
+  // recognisable artefact if a process dies holding it.
+  function withLock(trackerId, fn) {
+    const lock = lockPath(trackerId);
+    const deadline = Date.now() + LOCK_TIMEOUT_MS;
+
+    for (;;) {
+      try {
+        mkdirSync(lock);
+        break;
+      } catch (err) {
+        if (err.code !== "EEXIST") throw err;
+
+        let age = 0;
+        try {
+          age = Date.now() - statSync(lock).mtimeMs;
+        } catch {
+          continue; // released between the failed mkdir and the stat
+        }
+
+        if (age > LOCK_STALE_MS) {
+          // The holder died. Breaking the lock is safer than blocking for ever:
+          // the writes it guards are idempotent and a fetch can rebuild.
+          try {
+            rmSync(lock, { recursive: true, force: true });
+          } catch {
+            /* another process broke it first */
+          }
+          continue;
+        }
+
+        if (Date.now() > deadline) {
+          throw new Error(`timed out waiting for the lock on ${trackerId}`);
+        }
+        sleepSync(LOCK_RETRY_MS);
+      }
+    }
+
     try {
-      return JSON.parse(readFileSync(snapshotPath(trackerId), "utf8"));
-    } catch {
-      return null;
+      return fn();
+    } finally {
+      try {
+        rmSync(lock, { recursive: true, force: true });
+      } catch {
+        /* nothing useful to do; a stale lock is broken by age */
+      }
     }
   }
 
+  // Distinguishes "no snapshot yet" from "snapshot unreadable". The second must
+  // never be silently treated as the first.
+  function read(trackerId) {
+    const path = snapshotPath(trackerId);
+    let raw;
+    try {
+      raw = readFileSync(path, "utf8");
+    } catch (err) {
+      if (err.code === "ENOENT") return null;
+      throw new CorruptSnapshotError(path, err.message);
+    }
+    try {
+      return JSON.parse(raw);
+    } catch (err) {
+      throw new CorruptSnapshotError(path, err.message);
+    }
+  }
+
+  // A private temporary name per write. A shared one lets a concurrent writer
+  // rename the file out from under this process mid-write.
   function writeAtomic(path, contents) {
-    const tmp = `${path}.tmp`;
-    writeFileSync(tmp, contents);
-    renameSync(tmp, path);
+    const unique = `${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
+    const tmp = `${path}.${unique}.tmp`;
+    try {
+      writeFileSync(tmp, contents);
+      renameSync(tmp, path);
+    } catch (err) {
+      try {
+        unlinkSync(tmp);
+      } catch {
+        /* nothing left to clean up */
+      }
+      throw err;
+    }
   }
 
   // Takes one entry of the provider's trackings array: { tracker, shipment,
@@ -96,75 +226,117 @@ export function createStore(dir, { retainPlaces = false } = {}) {
     assertClean(tracking);
 
     const trackerId = tracking?.tracker?.trackerId;
-    if (!trackerId) throw new Error("payload has no tracker.trackerId");
-
-    const existing = read(trackerId);
-    const known = new Map((existing?.events ?? []).map((e) => [eventKey(e), e]));
-
-    const incoming = Array.isArray(tracking.events) ? tracking.events : [];
-    const added = [];
-    for (const event of incoming) {
-      const key = eventKey(event);
-      if (known.has(key)) continue;
-      known.set(key, event);
-      added.push(event);
+    if (!isSafeTrackerId(trackerId)) {
+      throw new InvalidPayloadError(
+        `tracker.trackerId is missing or not a usable identifier: ${JSON.stringify(trackerId)}`,
+      );
     }
 
-    const events = [...known.values()].sort(byDatetime);
-    const state = deriveState(events);
+    return withLock(trackerId, () => {
+      const existing = read(trackerId);
+      const known = new Map((existing?.events ?? []).map((e) => [eventKey(e), e]));
 
-    const snapshot = {
-      trackerId,
-      trackingNumber: tracking?.tracker?.trackingNumber ?? null,
-      shipmentReference: tracking?.tracker?.shipmentReference ?? null,
-      courierCode: tracking?.tracker?.courierCode ?? null,
-      state,
-      shipment: tracking.shipment ?? null,
-      statistics: tracking.statistics ?? null,
-      events,
-      firstSeenAt: existing?.firstSeenAt ?? receivedAt,
-      lastUpdatedAt: receivedAt,
-    };
+      const incoming = Array.isArray(tracking.events) ? tracking.events : [];
+      const added = [];
+      for (const event of incoming) {
+        const key = eventKey(event);
+        if (known.has(key)) continue;
+        known.set(key, event);
+        added.push(event);
+      }
 
-    assertClean(snapshot);
-    writeAtomic(snapshotPath(trackerId), `${JSON.stringify(snapshot, null, 2)}\n`);
+      const events = [...known.values()].sort(byDatetime);
+      const state = deriveState(events);
 
-    // Append-only arrival log: records when each event reached us, which the
-    // snapshot cannot show because it is rewritten in place.
-    if (added.length) {
-      const lines = added.map((e) => `${JSON.stringify({ receivedAt, event: e })}\n`).join("");
-      appendFileSync(logPath(trackerId), lines);
-    }
+      // The append-only arrival log records when each event reached us, which
+      // the snapshot cannot show because it is rewritten in place. Written
+      // first, so the durable record survives a crash mid-snapshot.
+      if (added.length) {
+        const lines = added.map((e) => `${JSON.stringify({ receivedAt, event: e })}\n`).join("");
+        appendFileSync(logPath(trackerId), lines);
+      }
 
-    return {
-      trackerId,
-      trackingNumber: snapshot.trackingNumber,
-      shipmentReference: snapshot.shipmentReference,
-      added: added.length,
-      duplicates: incoming.length - added.length,
-      total: events.length,
-      state,
-      report,
-    };
+      // A redelivery of events already held changes nothing. Rewriting the
+      // snapshot anyway would widen the torn-write window for no benefit and
+      // move lastUpdatedAt when nothing was updated.
+      if (existing && added.length === 0) {
+        return {
+          trackerId,
+          trackingNumber: existing.trackingNumber ?? null,
+          shipmentReference: existing.shipmentReference ?? null,
+          added: 0,
+          duplicates: incoming.length,
+          total: (existing.events ?? []).length,
+          state: existing.state ?? state,
+          report,
+          unchanged: true,
+        };
+      }
+
+      const snapshot = {
+        trackerId,
+        trackingNumber: tracking?.tracker?.trackingNumber ?? null,
+        shipmentReference: tracking?.tracker?.shipmentReference ?? null,
+        courierCode: tracking?.tracker?.courierCode ?? null,
+        state,
+        shipment: tracking.shipment ?? null,
+        statistics: tracking.statistics ?? null,
+        events,
+        firstSeenAt: existing?.firstSeenAt ?? receivedAt,
+        lastUpdatedAt: receivedAt,
+      };
+
+      assertClean(snapshot);
+      writeAtomic(snapshotPath(trackerId), `${JSON.stringify(snapshot, null, 2)}\n`);
+
+      return {
+        trackerId,
+        trackingNumber: snapshot.trackingNumber,
+        shipmentReference: snapshot.shipmentReference,
+        added: added.length,
+        duplicates: incoming.length - added.length,
+        total: events.length,
+        state,
+        report,
+        unchanged: false,
+      };
+    });
   }
 
-  // Deliberately free of location data: this is what an operator checks from a
-  // phone, and it should carry nothing that would matter if it leaked.
+  function trackerIds() {
+    return readdirSync(dir)
+      .filter((f) => f.endsWith(".json"))
+      .map((f) => f.slice(0, -".json".length));
+  }
+
+  // Cheap enough for a liveness probe every few seconds: it counts files rather
+  // than parsing them.
+  function count() {
+    return trackerIds().length;
+  }
+
+  // Deliberately free of location data: this is what an operator checks, and it
+  // should carry nothing that would matter if it leaked.
   function summary() {
-    const files = readdirSync(dir).filter((f) => f.endsWith(".json") && !f.endsWith(".tmp"));
-    return files
-      .map((f) => read(f.replace(/\.json$/, "")))
-      .filter(Boolean)
-      .map((s) => ({
-        trackerId: s.trackerId,
-        trackingNumber: s.trackingNumber,
-        shipmentReference: s.shipmentReference,
-        milestone: s.state?.current ?? null,
-        events: s.state?.eventCount ?? 0,
-        lastEventAt: s.state?.lastEventAt ?? null,
-        lastUpdatedAt: s.lastUpdatedAt ?? null,
-      }));
+    return trackerIds().map((id) => {
+      let snapshot;
+      try {
+        snapshot = read(id);
+      } catch {
+        return { trackerId: id, unreadable: true };
+      }
+      if (!snapshot) return { trackerId: id, unreadable: true };
+      return {
+        trackerId: snapshot.trackerId ?? id,
+        trackingNumber: snapshot.trackingNumber ?? null,
+        shipmentReference: snapshot.shipmentReference ?? null,
+        milestone: snapshot.state?.current ?? null,
+        events: snapshot.state?.eventCount ?? 0,
+        lastEventAt: snapshot.state?.lastEventAt ?? null,
+        lastUpdatedAt: snapshot.lastUpdatedAt ?? null,
+      };
+    });
   }
 
-  return { ingest, summary, read, dir };
+  return { ingest, summary, count, read, trackerIds, dir };
 }
