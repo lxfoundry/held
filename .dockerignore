@@ -1,0 +1,19 @@
+# Nothing secret ever reaches the image.
+.env
+.env.*
+
+# Runtime state lives on a mounted volume, not in the image. Committed fixtures
+# are the repository's record and would otherwise be shipped and then shadowed
+# by the volume mount anyway.
+fixtures/
+
+# Not needed to run the receiver.
+.git/
+.github/
+.gitignore
+.claude/
+node_modules/
+test/
+docs/
+*.md
+fly.toml

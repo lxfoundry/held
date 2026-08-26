@@ -109,12 +109,50 @@ install.
 > and over public holidays. A receiver that is only up while someone is working collects only what
 > happens while someone is working.
 
+### On Fly.io
+
+The repository carries a `Dockerfile`, a `docker-entrypoint.sh` and a `fly.toml`. There is nothing to
+install, so the image is the Node runtime plus the source files.
+
+```sh
+fly apps create held-receiver --org personal
+fly volumes create held_events --region lhr --size 1 --app held-receiver --yes
+fly secrets set SHIP24_WEBHOOK_SECRET="$(node -e "console.log(crypto.randomUUID())")" --app held-receiver
+fly deploy --app held-receiver
+```
+
+Then point the provider's account webhook at
+`https://held-receiver.fly.dev/hooks/ship24/<secret>`, and check it:
+
+```sh
+fly logs --app held-receiver
+curl https://held-receiver.fly.dev/health
+```
+
+Three things about this configuration are deliberate:
+
+- **The machine does not sleep.** `auto_stop_machines = false` with
+  `min_machines_running = 1`. The point of deploying is to be listening when a parcel moves at 03:00
+  on a bank holiday.
+- **One machine, never two.** The store is a directory on a single volume, and the lock that makes
+  concurrent writes safe is per-filesystem. A second machine would keep its own divergent store, so
+  do not `fly scale count`.
+- **The provider API key is not set on the machine.** The receiver only listens; it never calls the
+  provider, so an internet-facing host has no reason to hold a credential it cannot use. Run
+  recovery fetches locally instead — the event lists are cumulative, so a local fetch rebuilds the
+  full history whatever the deployed store holds.
+
+The container runs unprivileged. A mounted volume arrives owned by root, so the entrypoint prepares
+the directory and then drops to the `node` user.
+
 ### Supervision is required
 
 The service is written so that nothing a caller sends ends the process: every request path is
 wrapped, and `uncaughtException` and `unhandledRejection` are logged rather than fatal. That is a
 belt, not a guarantee — the host must still restart it. Use the platform's restart policy, a Docker
-`restart: always`, or a systemd unit with `Restart=always`.
+`restart: always`, or a systemd unit with `Restart=always`. On Fly.io this is the default: a machine
+that exits is restarted, and the health check above removes it from the pool until `/health`
+answers again.
 
 Storage is a plain directory. On a host with an ephemeral filesystem the store does not survive a
 restart — recoverable, see below, but a persistent volume is worth the five minutes.
