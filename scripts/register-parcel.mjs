@@ -40,12 +40,24 @@ function fail(msg) {
   process.exit(1);
 }
 
-const args = process.argv.slice(2);
-const dryRun = args.includes("--dry-run");
-const [trackingNumber, courierArg] = args.filter((a) => !a.startsWith("--"));
+const argv = process.argv.slice(2);
+const dryRun = argv.includes("--dry-run");
+
+// --ref "parcel A" labels the tracker so parcels are distinguishable later.
+const refIndex = argv.indexOf("--ref");
+const shipmentReference = refIndex === -1 ? null : argv[refIndex + 1];
+if (refIndex !== -1 && !shipmentReference) fail("--ref needs a value");
+
+const refValueIndex = refIndex === -1 ? -1 : refIndex + 1;
+const positional = argv.filter(
+  (a, i) => !a.startsWith("--") && i !== refValueIndex,
+);
+const [trackingNumber, courierArg] = positional;
 
 if (!trackingNumber) {
-  fail("usage: node scripts/register-parcel.mjs <trackingNumber> [courierCode] [--dry-run]");
+  fail(
+    "usage: node scripts/register-parcel.mjs <trackingNumber> [courierCode] [--ref <label>] [--dry-run]",
+  );
 }
 
 const courierCode = courierArg || "gb-post";
@@ -53,6 +65,7 @@ const { SHIP24_API_KEY: apiKey } = loadEnv();
 if (!apiKey) fail("SHIP24_API_KEY is not set in .env");
 
 const body = { trackingNumber, courierCode: [courierCode] };
+if (shipmentReference) body.shipmentReference = shipmentReference;
 
 console.log(`→ POST ${API_BASE}/trackers`);
 console.log(`  ${JSON.stringify(body)}`);

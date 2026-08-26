@@ -190,3 +190,13 @@ and it lives at this repository root because `.mcp.json` is read from the projec
    listings*.
 7. Public-facing docs (README, API reference) describe **what the system does** — never event,
    campaign or competition tactics.
+8. ⚠️ **Scrub tracking fixtures before committing them.** Captured courier events carry personal
+   location data. This repository is publishable at any moment, so redact **at capture time** — not
+   in a later audit, because a fixture is public from the moment the repo is, and nobody re-reads a
+   committed JSON file. Tracking numbers themselves are fine; the places attached to them are not.
+
+   ⚠️ **A field-name scrub is not enough.** `recipient.address` and `recipient.postCode` are the
+   obvious fields, but postcodes also arrive **inside free-text event strings** — a real observed
+   event reads `"location": "<Town> Post Office [AB12 3CD]"` while `recipient.postCode` is `null`.
+   Scrub by **pattern as well as by field**: run a UK postcode regex over the whole serialised
+   payload, not over a list of keys you expect to be sensitive.
