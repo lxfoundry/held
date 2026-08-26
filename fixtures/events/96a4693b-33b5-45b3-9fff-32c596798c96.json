@@ -1,0 +1,56 @@
+{
+  "trackerId": "96a4693b-33b5-45b3-9fff-32c596798c96",
+  "trackingNumber": "VU499656714GB",
+  "shipmentReference": "parcel B1",
+  "courierCode": [
+    "gb-post"
+  ],
+  "state": {
+    "current": "pending",
+    "delivered": false,
+    "everAvailableForPickup": false,
+    "observed": [],
+    "eventCount": 0,
+    "lastEventAt": null
+  },
+  "shipment": {
+    "shipmentId": "bc633aed-2385-4486-8c44-8e6d41692c18",
+    "statusCode": null,
+    "statusCategory": null,
+    "statusMilestone": "pending",
+    "originCountryCode": null,
+    "destinationCountryCode": null,
+    "delivery": {
+      "estimatedDeliveryDate": null,
+      "courierEstimatedDeliveryDate": null,
+      "service": null,
+      "signedBy": null
+    },
+    "trackingNumbers": [
+      {
+        "tn": "VU499656714GB"
+      }
+    ],
+    "recipient": {
+      "name": null,
+      "address": null,
+      "postCode": null,
+      "city": null,
+      "subdivision": null
+    }
+  },
+  "statistics": {
+    "timestamps": {
+      "infoReceivedDatetime": null,
+      "inTransitDatetime": null,
+      "outForDeliveryDatetime": null,
+      "failedAttemptDatetime": null,
+      "availableForPickupDatetime": null,
+      "exceptionDatetime": null,
+      "deliveredDatetime": null
+    }
+  },
+  "events": [],
+  "firstSeenAt": "2026-08-26T18:01:01.466Z",
+  "lastUpdatedAt": "2026-08-26T18:01:01.466Z"
+}

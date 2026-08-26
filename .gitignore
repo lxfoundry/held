@@ -80,6 +80,9 @@ coverage/
 webhook-tunnel.log
 .ngrok*
 
+# Atomic-write leftovers from the event store
+*.json.tmp
+
 # --- Editors & OS ---
 .vscode/
 !.vscode/extensions.json

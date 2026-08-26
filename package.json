@@ -1,0 +1,16 @@
+{
+  "name": "held",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Buy from a stranger. Keep your money until it's sorted.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/receiver.mjs",
+    "test": "node --test",
+    "register": "node scripts/register-parcel.mjs",
+    "fetch": "node scripts/fetch-parcel.mjs"
+  }
+}
