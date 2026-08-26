@@ -138,9 +138,15 @@ Every permitted action preserves a decision for a human to make later. Every for
 of money. This is the same boundary the AI components observe, applied to the automated one: **no
 component of this system settles anything on its own.**
 
-Escalation is free to the buyer because the dispute resolver's fee is zero for the exchange token —
-see [`offer-model.md`](./offer-model.md) §3. If that fee were ever non-zero, autonomous escalation
-would be spending the buyer's money without asking, and this invariant would have to be revisited.
+Escalation is free to the buyer, and the mechanism is worth stating precisely because the invariant
+depends on it. The protocol computes the buyer's escalation deposit as **the dispute resolver's fee
+for the exchange token, multiplied by a protocol-wide percentage** — not as a share of the item
+price. The resolver's fee for our exchange token is zero (see [`offer-model.md`](./offer-model.md)
+§4), so the deposit is zero and escalating commits none of the buyer's funds.
+
+⚠️ **If that fee were ever non-zero, autonomous escalation would be spending the buyer's money
+without asking**, and this invariant would have to be revisited. The zero fee is therefore not only
+a convenience for the seller — it is what makes automatic escalation legitimate.
 
 ### ⭐ How the watchdog is authorised
 
@@ -193,10 +199,24 @@ Both periods they measure against are **offer parameters**, fixed at purchase an
 [`offer-model.md`](./offer-model.md) §3: `disputePeriodDuration` runs from purchase,
 `resolutionPeriodDuration` (3 days) runs from the moment a dispute is raised.
 
-| Constant | Guards | Production | Demo |
-|---|---|---|---|
-| `DISPUTE_RAISE_LEAD` | Raise when this much of `disputePeriodDuration` remains | 48 h | scaled to the compressed window |
-| `ESCALATION_LEAD` | Escalate when this much of `resolutionPeriodDuration` remains | 24 h | scaled likewise |
+| Constant | Guards | Value |
+|---|---|---|
+| `DISPUTE_RAISE_LEAD` | Raise when this much of `disputePeriodDuration` remains | **48 h** |
+| `ESCALATION_LEAD` | Escalate when this much of `resolutionPeriodDuration` remains | **24 h** |
+
+⚠️ **The protocol enforces a minimum of 7 days on both periods** — verified on-chain via
+`getMinDisputePeriod()` and `getMinResolutionPeriod()`. **Windows cannot be shortened for testing**,
+so there is no separate set of test values: these are the only values, and any offer attempting a
+shorter period is rejected at creation.
+
+**The lead is what makes this testable.** The watchdog fires at `created + (period − lead)`, so a
+lead set close to the period trips the threshold shortly after purchase without touching the window
+at all. Exercising the deadline logic is therefore a matter of configuring the lead, not of waiting
+out a calendar — and a failed attempt costs one throwaway exchange rather than a week.
+
+⚠️ **A lead approaching the period is a testing configuration and must never ship.** In production it
+would raise disputes before a parcel could plausibly arrive, which is precisely what the constraint
+above forbids. Where such a configuration is used in a demonstration, say so.
 
 ⭐ **Each threshold must be materially smaller than the period it guards.** If `ESCALATION_LEAD`
 approaches `resolutionPeriodDuration`, the watchdog escalates the instant a dispute is raised — every
@@ -204,12 +224,13 @@ case reaches a human decider, the parties never get the chance to settle between
 cheapest and most common path stops existing. The same holds one level up: a `DISPUTE_RAISE_LEAD`
 too close to `disputePeriodDuration` raises disputes before the parcel has had a chance to arrive.
 
-Express each as `max(fraction × period, floor)`. A pure fraction collapses to nothing on a short
-window; a pure floor exceeds the whole period on a short one. Demo windows are compressed to minutes,
-so the floor must scale with them or the watchdog fires before the parcel has moved.
+Express each as `max(fraction × period, floor)` so the relationship holds if a period is ever
+configured longer than the minimum.
 
-⚠️ **A window must never be allowed to lapse in testing.** A lapsed dispute period pays the seller
-and the exchange cannot be recovered — the parcel and the test run are both spent.
+⚠️ **A lapsed window cannot be recovered, and cannot be replaced quickly.** A lapsed dispute period
+pays the seller, and because of the 7-day floor a replacement exchange takes a week to reach the same
+state. **Any test of the deadline logic effectively gets one attempt**, so create several candidate
+exchanges in parallel rather than relying on one.
 
 ---
 

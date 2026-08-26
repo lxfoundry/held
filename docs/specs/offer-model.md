@@ -118,8 +118,8 @@ or makes offer creation fail outright.
 |---|---|---|
 | `sellerDeposit` | `0` | Any non-zero value obliges the seller to deposit funds into escrow *before* the buyer can commit, which reintroduces a gas-paying step for the seller and breaks the signature-only property in §1 |
 | Dispute resolver fee for the exchange token | `0` | Same reason. A non-zero fee must be funded before commit |
-| `disputePeriodDuration` | `(delivery_timeline_days + 14) days` | Must cover shipping **and** inspection, because the period opens at purchase. This is the window the watchdog measures against |
-| `resolutionPeriodDuration` | 3 days | Starts when a **dispute is raised**, not at purchase. It is the window in which the two parties settle between themselves. ⚠️ **If it lapses with no resolution, the seller is paid** — the same asymmetry as the dispute period, one level down |
+| `disputePeriodDuration` | `(delivery_timeline_days + 14) days`, and **never below the protocol minimum of 7 days** | Must cover shipping **and** inspection, because the period opens at purchase. This is the window the watchdog measures against |
+| `resolutionPeriodDuration` | **7 days** — the protocol minimum; shorter values are rejected | Starts when a **dispute is raised**, not at purchase. It is the window in which the two parties settle between themselves. ⚠️ **If it lapses with no resolution, the seller is paid** — the same asymmetry as the dispute period, one level down |
 | `voucherRedeemableFrom` | ≤ now | The atomic redeem in step 6 reverts if the voucher is not yet redeemable |
 
 > ⭐ **Both periods bound the automated deadline logic**, which is specified in
@@ -128,9 +128,12 @@ or makes offer creation fail outright.
 > `resolutionPeriodDuration`, every dispute escalates the moment it is raised, the parties never get
 > the chance to settle between themselves, and the cheap path stops existing.
 
-> ⚠️ **The protocol enforces minimums and maximums on both periods.** Read them from protocol config
-> rather than assuming — a short period chosen for testing can fall below the floor and be rejected at
-> offer creation.
+> ⚠️ **The protocol enforces floors on both periods: 7 days each**, read from config as
+> `getMinDisputePeriod()` and `getMinResolutionPeriod()`, with the resolution period also capped at 90
+> days. **Neither period can be shortened for testing.** An offer below a floor is rejected at
+> creation, so exercising any deadline behaviour is a question of creating the exchange early enough,
+> not of configuring a brief window. Read the live values rather than trusting this line — they are
+> protocol configuration and can change.
 
 **Exchange token: an ERC-20** (USDC on Base). Native currency is not usable here — a meta-transaction
 cannot forward `msg.value`, so the gasless buyer path in §1 requires a token the protocol can pull
@@ -154,9 +157,9 @@ Its configuration has four requirements:
 
 | Field | Requirement |
 |---|---|
-| `fees` | Lists the exchange token used by offers, at `feeAmount: 0` |
+| `fees` | Lists the exchange token used by offers, at `feeAmount: 0`. ⭐ **This zero does double duty**: it spares the seller a funding step, and because the buyer's escalation deposit is computed as *this fee* multiplied by a protocol percentage — not as a share of the item price — it also makes escalation cost the buyer nothing |
 | `sellerAllowList` | **Empty.** A non-empty allow list restricts which sellers may name this resolver |
-| `escalationResponsePeriod` | Set explicitly; it bounds how long the resolver has to respond to an escalated dispute |
+| `escalationResponsePeriod` | Set explicitly; it bounds how long the resolver has to respond to an escalated dispute. Capped at 90 days by protocol config |
 | `assistant` / `admin` / `treasury` | The operator's wallet |
 
 **Verification before use.** After registering a resolver, create one throwaway offer against it and
