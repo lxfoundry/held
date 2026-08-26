@@ -145,6 +145,17 @@ Three things about this configuration are deliberate:
 The container runs unprivileged. A mounted volume arrives owned by root, so the entrypoint prepares
 the directory and then drops to the `node` user.
 
+If the build fails with `x509: certificate signed by unknown authority` while waiting for the depot
+builder, TLS on the machine doing the deploy is being intercepted — endpoint antivirus and corporate
+proxies both do this, and the Go client does not pick up the injected root even when the rest of the
+system trusts it. Deploy through Fly's own builder instead, which goes over their private network:
+
+```sh
+fly deploy --app held-receiver --depot=false --remote-only
+```
+
+Building locally with `--local-only` also works, and needs a running Docker daemon.
+
 ### Supervision is required
 
 The service is written so that nothing a caller sends ends the process: every request path is
