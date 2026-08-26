@@ -58,7 +58,7 @@ A buyer-side app for peer-to-peer marketplace purchases that gives you:
 - ❌ Not a marketplace. We don't do discovery, search or matching. You bring your own listing.
 - ❌ Not a payments product. The money movement is the least interesting part.
 - ❌ Not an AI judge. See §5.
-- ❌ Not for agents doing the buying. **The buyer is a human.** Agent-initiated purchase drags in mandate, allowance and spending-constraint questions that would hijack the pitch.
+- ❌ Not for agents doing the buying. **The buyer is a human.** Agent-initiated purchase drags in mandate, allowance and spending-constraint questions this product deliberately does not answer.
 - ❌ Not a finished product. It is a **proposition with a working prototype** — and we say so.
 
 ### 3a. The simplified flow — and why the watchdog is mandatory
