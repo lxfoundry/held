@@ -163,9 +163,18 @@ Its configuration has four requirements:
 discard it. A successful creation is the only reliable evidence that the fee schedule, allow list and
 account state are all correct.
 
-**Fallback.** If the resolver is unavailable or misconfigured, offers may name any other registered
-resolver whose fee schedule lists the exchange token at zero. On Base Sepolia, resolver id `20`
-satisfies this. Changing resolver is a single parameter change and affects nothing else in this spec.
+**Fallback.** If the resolver is unavailable or misconfigured, name any other resolver registered on
+the **same protocol configuration** whose fee schedule lists the exchange token at zero, or register
+a replacement — registration is permissionless. Either way it is a single parameter change.
+
+⚠️ **Resolver ids are only meaningful alongside a protocol configuration id.** The protocol is
+deployed to several configurations, including more than one on the same chain, and the same numeric
+id names unrelated resolvers on different ones. **Never record or discuss a resolver id without its
+configuration id.**
+
+⚠️ **Changing configuration is not a fallback.** Seller accounts, exchange ids and the pre-signed
+authorisations in §2 are all scoped to the configuration that created them and do not exist on
+another. Moving between configurations re-provisions everything.
 
 ---
 
