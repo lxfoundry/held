@@ -46,9 +46,24 @@ but something is wrong, an AI reads the evidence and proposes a settlement both 
 
 - **Delivery oracle: Ship24**, an aggregator, chosen because Royal Mail's and InPost's own tracking
   APIs are not self-service and cannot be provisioned in this timeline.
-  - Auth `Authorization: Bearer apik_…`, core endpoint `POST /tracking/search`, webhooks supported
-    (push, not poll). Node.js SDK. Free tier: 10 shipments/month plus a 100-shipment first-month
-    bonus.
+  - Auth `Authorization: Bearer apik_…`. **The production endpoint is `/trackers`.** Webhooks are
+    push, not poll. Node.js SDK. Ship24's **Tracking API** product; its free tier carries both the
+    API and webhooks, 10 shipments/month plus a 100-shipment first-month bonus, counted per
+    **tracker** rather than per call.
+  - ⚠️ **Ship24 has two independent subscriptions and they gate different endpoints.** *per-shipment*
+    unlocks `/trackers` — create tracker, receive webhooks, fetch results. *per-call* unlocks
+    `/tracking/search`. Holding one and calling the other returns `HTTP 422 no_active_subscription`,
+    which is a plan-scope error and not an authentication failure — the key is fine.
+  - ⚠️ **`/tracking/search` is a one-off query and subscribes to nothing.** Webhook updates are
+    delivered per tracker, so every parcel must be registered through `/trackers` before any event is
+    pushed. Registering a parcel late loses no history — carrier event lists are cumulative and the
+    first fetch returns everything to date.
+  - **Courier codes are verified against `GET /couriers`, never assumed.** Royal Mail is `gb-post`
+    (`isPost: true`, no required fields); InPost UK is **`inpost-uk`**, not `inpost`. Carrier
+    availability varies by plan — some carriers are paid-only — so check a new code against
+    `/couriers` before writing a mapping that depends on it.
+  - **Registering a tracker is provisioning, not runtime.** It belongs in a script, never in the
+    adapter — the oracle adapter only ever receives.
   - ⚠️ **Royal Mail requires courier code `gb-post`.** Royal Mail tracking numbers are not
     self-identifying and a lookup without the code returns nothing.
   - ⚠️ **Standard 1st/2nd class produces no tracking events at all.** Only Tracked 24/48 and Special
