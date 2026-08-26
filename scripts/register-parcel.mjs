@@ -11,7 +11,8 @@
 // it never registers. Registering late loses no history — carrier event lists
 // are cumulative and the first fetch returns everything to date.
 //
-// Zero dependencies: uses the global fetch built into Node 18+.
+// Zero dependencies: uses the global fetch built into Node. This repository
+// requires Node 22 or later — see engines in package.json.
 
 import { loadEnv } from "../src/env.mjs";
 
