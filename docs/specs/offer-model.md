@@ -70,6 +70,9 @@ sequenceDiagram
     R->>P: relayMetaTransaction
     Note over P: create offer · commit buyer ·<br/>redeem · open dispute period
     P-->>B: exchangeId (from logs)
+
+    B->>B: sign raiseDispute + escalateDispute
+    Note over B: watchdog authorisation —<br/>held, not executed
 ```
 
 | # | Actor | Call | Cost to actor |
@@ -83,10 +86,21 @@ sequenceDiagram
 | 5 | Buyer | `signMetaTxCreateOfferCommitAndRedeem({ createOfferAndCommitArgs, nonce })` | gasless |
 | 6 | Relayer | `relayMetaTransaction({ functionName, functionSignature, nonce, sigR, sigS, sigV })` | one transaction |
 | 7 | — | `getCommittedExchangeIdFromLogs(receipt.logs)` → `exchangeId` | — |
+| 8 | Buyer | sign a `raiseDispute` and an `escalateDispute` meta-transaction for this `exchangeId` | gasless |
 
 After step 6 the exchange is in state `REDEEMED` with `redeemedDate` set: the offer exists, the buyer
 is committed, the voucher is redeemed, the seller is obliged to fulfil, and **the dispute period is
 open**.
+
+> ⭐ **Step 8 is not optional, and it cannot be moved earlier.** The deadline logic in
+> [`tracking-state-mapping.md`](./tracking-state-mapping.md) §4 acts on the buyer's behalf, and the
+> protocol requires those two calls to come from the buyer. The service therefore holds **pre-signed
+> authorisations**, never a key — and it cannot sign them in advance, because `exchangeId` does not
+> exist until step 6 is mined.
+>
+> **The buyer signs three times in total**: the purchase, and the two authorisations that let the
+> system protect them afterwards. All three are gasless. An exchange without step 8 is unprotected,
+> and must be shown as such.
 
 > ⚠️ **Redeem fires at purchase, not at delivery.** Redeem is the buyer exercising the right to
 > receive the item — it is not a confirmation that anything arrived. The dispute period starts
@@ -97,7 +111,7 @@ open**.
 
 ## 3. Offer parameters
 
-Four values are load-bearing. Getting any of them wrong either breaks a stated property of the system
+Five values are load-bearing. Getting any of them wrong either breaks a stated property of the system
 or makes offer creation fail outright.
 
 | Parameter | Value | Requirement |
@@ -105,7 +119,18 @@ or makes offer creation fail outright.
 | `sellerDeposit` | `0` | Any non-zero value obliges the seller to deposit funds into escrow *before* the buyer can commit, which reintroduces a gas-paying step for the seller and breaks the signature-only property in §1 |
 | Dispute resolver fee for the exchange token | `0` | Same reason. A non-zero fee must be funded before commit |
 | `disputePeriodDuration` | `(delivery_timeline_days + 14) days` | Must cover shipping **and** inspection, because the period opens at purchase. This is the window the watchdog measures against |
+| `resolutionPeriodDuration` | 3 days | Starts when a **dispute is raised**, not at purchase. It is the window in which the two parties settle between themselves. ⚠️ **If it lapses with no resolution, the seller is paid** — the same asymmetry as the dispute period, one level down |
 | `voucherRedeemableFrom` | ≤ now | The atomic redeem in step 6 reverts if the voucher is not yet redeemable |
+
+> ⭐ **Both periods bound the automated deadline logic**, which is specified in
+> [`tracking-state-mapping.md`](./tracking-state-mapping.md) §4. Its two thresholds must each be
+> **materially smaller** than the period they guard. If the escalation threshold approaches
+> `resolutionPeriodDuration`, every dispute escalates the moment it is raised, the parties never get
+> the chance to settle between themselves, and the cheap path stops existing.
+
+> ⚠️ **The protocol enforces minimums and maximums on both periods.** Read them from protocol config
+> rather than assuming — a short period chosen for testing can fall below the floor and be rejected at
+> offer creation.
 
 **Exchange token: an ERC-20** (USDC on Base). Native currency is not usable here — a meta-transaction
 cannot forward `msg.value`, so the gasless buyer path in §1 requires a token the protocol can pull
@@ -166,9 +191,11 @@ network availability at the time it is shown.
    step contradicts §1.
 2. **The buyer never sends a transaction and never holds native currency.** Any path that requires
    the buyer to hold gas is a defect.
-3. **The seller's only on-chain obligations are one account creation and zero transactions
+3. **The purchase interaction produces three signatures**: the atomic purchase, and the two scoped
+   authorisations the deadline logic later relays. Losing the third is losing the protection.
+4. **The seller's only on-chain obligations are one account creation and zero transactions
    thereafter.** `sellerDeposit` and the resolver fee stay at zero.
-4. **`exchangeId` is the only handle passed downstream.** No component below this spec depends on how
+5. **`exchangeId` is the only handle passed downstream.** No component below this spec depends on how
    the exchange was created.
-5. **The buyer-facing interface never names any of this.** No offer, commit, redeem, voucher, rNFT,
+6. **The buyer-facing interface never names any of this.** No offer, commit, redeem, voucher, rNFT,
    escrow, wallet or exchange appears in a user-visible string, including error messages.
