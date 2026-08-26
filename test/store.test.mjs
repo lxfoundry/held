@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
   createStore,
   deriveState,
+  eventKey,
   isSafeTrackerId,
   CorruptSnapshotError,
   InvalidPayloadError,
@@ -178,5 +179,42 @@ test("concurrent writes within one process do not lose events", () => {
       store.ingest(tracking([event(`e${i}`, "in_transit", `2026-08-26T15:${String(i).padStart(2, "0")}:00.000Z`)]));
     }
     assert.equal(store.read("test-tracker").events.length, 25);
+  });
+});
+
+// An event without a provider id is identified by its own content. No status
+// field is read to do it: statusCode is finer than the milestone the mapping
+// keys on and can split one logical event in two, and statusMilestone is
+// coarser than identity and can merge two distinct ones.
+test("an event with no id is keyed on its content, not on a status field", () => {
+  const event = {
+    trackingNumber: "MZ544750899GB",
+    datetime: "2026-08-26T15:21:01.000Z",
+    statusMilestone: "in_transit",
+    statusCode: "transit_handover",
+  };
+  const reordered = {
+    statusCode: "transit_handover",
+    statusMilestone: "in_transit",
+    datetime: "2026-08-26T15:21:01.000Z",
+    trackingNumber: "MZ544750899GB",
+  };
+
+  assert.equal(eventKey(event), eventKey(reordered), "key order changed the identity");
+  assert.ok(!eventKey(event).includes("transit_handover"), "a status code leaked into the key");
+  assert.notEqual(eventKey(event), eventKey({ ...event, datetime: "2026-08-27T00:00:00.000Z" }));
+  assert.equal(eventKey({ eventId: "provided" }), "provided");
+});
+
+test("an id-less event still deduplicates across redeliveries", () => {
+  withStore((store) => {
+    const bare = {
+      trackingNumber: "MZ544750899GB",
+      datetime: "2026-08-26T15:21:01.000Z",
+      statusMilestone: "in_transit",
+    };
+    assert.equal(store.ingest(tracking([bare])).added, 1);
+    assert.equal(store.ingest(tracking([bare])).added, 0);
+    assert.equal(store.read("test-tracker").events.length, 1);
   });
 });

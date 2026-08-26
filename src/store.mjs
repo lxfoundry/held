@@ -23,6 +23,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { scrub, assertClean } from "./scrub.mjs";
 
@@ -53,17 +54,34 @@ function byDatetime(a, b) {
   return String(a?.eventId ?? "").localeCompare(String(b?.eventId ?? ""));
 }
 
-// Events are keyed on the provider's event id. Where one is absent, a stable
-// composite stands in, so a repeated delivery still deduplicates. Reading
-// statusCode here is identity, not mapping — the milestone rule above governs
-// what drives behaviour, and nothing here does.
+// Key order must not change the digest below: the same event serialised in a
+// different order is the same event.
+function canonical(value) {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, canonical(value[key])]),
+    );
+  }
+  return value;
+}
+
+// Events are keyed on the provider's event id. Where one is absent, a digest of
+// the event's own content stands in, so a repeated delivery still deduplicates.
+//
+// No status field is read to build it, deliberately. statusCode is finer than
+// the milestone the mapping keys on and varies between carriers, so using it as
+// identity can split one logical event into two; statusMilestone is coarser than
+// identity, so it can merge two distinct ones. A content digest avoids choosing
+// between them and is exact.
 export function eventKey(event) {
   if (event?.eventId) return String(event.eventId);
-  return [
-    event?.trackingNumber ?? "",
-    event?.datetime ?? event?.occurrenceDatetime ?? "",
-    event?.statusCode ?? "",
-  ].join("|");
+  const digest = createHash("sha1")
+    .update(JSON.stringify(canonical(event ?? null)))
+    .digest("hex");
+  return `content:${digest}`;
 }
 
 export function isSafeTrackerId(id) {
