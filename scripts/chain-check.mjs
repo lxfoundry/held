@@ -10,7 +10,7 @@
 // nobody can submit.
 
 import { Contract } from "ethers";
-import { abis } from "@bosonprotocol/common";
+import { abis } from "@bosonprotocol/core-sdk";
 import { META_TX_METHOD, connect } from "../src/chain.mjs";
 
 const DAY = 86_400;
