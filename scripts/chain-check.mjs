@@ -161,8 +161,20 @@ if (!provisioned) {
       continue;
     }
     try {
-      // The gateway's own readiness check, for this key and this contract.
-      const ready = await coreSDK.assertAndGetMetaTxConfig2({ contractAddress });
+      // The gateway's own readiness check, for this key and this contract —
+      // the same GET the SDK makes, called directly. The SDK's own wrapper is
+      // a protected method, and reaching past that couples this script to a
+      // non-public API that can be renamed in any release. checkMetaTxConfigSet
+      // above has already established the url, the key and this contract's id.
+      const query = new URLSearchParams({
+        apiKey: coreSDK.metaTxConfig.apiKey,
+        apiId: coreSDK.metaTxConfig.apiIds[contractAddress.toLowerCase()][META_TX_METHOD],
+        contract: contractAddress,
+      });
+      const response = await fetch(`${relayerUrl}/ready?${query}`, {
+        signal: AbortSignal.timeout(15_000),
+      });
+      const ready = response.ok && Boolean((await response.json())?.ready);
       if (ready) ok(`relayer ready to relay to the ${label}`);
       else fail(`relayer does not report ready for the ${label} (${contractAddress})`);
     } catch (err) {
