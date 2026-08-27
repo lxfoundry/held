@@ -58,6 +58,8 @@ should not hold the means to either, and that is enforced in code rather than pr
 | `PUBLIC_BASE_URL` | — | Only used to print the correct URLs at startup |
 | `RETAIN_LOCATIONS` | `false` | Keep place names in captured events. Postcodes are stripped either way |
 | `ALLOW_INSECURE_HOOK` | `false` | Start without a secret. Local development only |
+| `SHIP24_TRACKER_ALLOWLIST` | — | **Required.** The tracker ids whose events are accepted. Commas, spaces and newlines all separate |
+| `ALLOW_ANY_TRACKER` | `false` | Accept events for any tracker id. Local development only |
 
 A real environment variable always wins over `.env`, so a deployed host needs no `.env` file. An
 empty value counts as unset.
@@ -66,21 +68,47 @@ empty value counts as unset.
 string anyone would guess and the consequence is event injection. `ALLOW_INSECURE_HOOK=true` opts
 out of that check deliberately.
 
+**Without `SHIP24_TRACKER_ALLOWLIST` it also refuses to start**, for the same reason in a different
+place: an unset allowlist is not a narrower filter, it is no filter. `ALLOW_ANY_TRACKER=true` opts
+out deliberately. Both refusals are checked before the port is bound, so a misconfigured deploy fails
+its health check and rolls back rather than coming up quietly unprotected.
+
+An entry that is not a usable tracker id is refused at startup too — a typo in the list would
+otherwise sit there matching nothing, which looks identical to a correctly configured receiver until
+a parcel's events go missing.
+
 The secret is never written to a log. Startup prints the *shape* of each URL, not the value.
 
 ## Access control, and what it does not cover
 
-The secret path segment authenticates the caller. It is provider-agnostic, it works today, and it is
-the whole of the access control.
+Access control is two independent checks, and neither replaces the other.
 
-⚠️ **It carries no integrity check on the body.** Anyone who obtains the secret can inject arbitrary
-events. The most damaging forgery is not a fake `delivered` — it is a fake `available_for_pickup`,
+**1 · The secret path segment authenticates the caller.** It is provider-agnostic and works with any
+provider that can be pointed at a URL.
+
+**2 · The tracker allowlist authenticates the subject.** The path says *someone who knows the URL is
+calling*; the allowlist says *about a parcel we actually registered*. A tracker id that is not on the
+list is refused before a path is built or a lock is taken, so a refused push leaves nothing on the
+volume — no snapshot, no event log, no lock file.
+
+⚠️ **This is not a hypothetical defence.** The provider itself pushed a tracker nobody registered,
+carrying a live tracking number already in the store under a different id, in state `delivered` —
+and `delivered` is the milestone that enables paying the seller.
+
+The allowlist is provisioning, not runtime. Registering a parcel happens against the provider's API
+from a machine holding an API key; the receiver holds none, so the list arrives as configuration.
+**There is deliberately no endpoint that adds to it** — one would hand the power straight back to
+anyone holding the URL, which is what the allowlist exists to survive. Registering a new parcel
+therefore means updating the variable and restarting.
+
+⚠️ **Neither check is an integrity check on the body.** Anyone who obtains the secret can still
+inject arbitrary events *for an allowlisted tracker*. The most damaging forgery is not a fake `delivered` — it is a fake `available_for_pickup`,
 which is **sticky**: once observed for an exchange it stands the watchdog down permanently, and a
 dispute window then lapses in the seller's favour.
 
-**Signature verification is therefore a prerequisite for shipping the watchdog, not an optional
-complement to the path secret.** Verify it in the same place and keep the path; the two are
-independent checks. Until then, treat the secret as a credential — rotate it if it appears in a log,
+**Signature verification is therefore still a prerequisite for shipping the watchdog.** The allowlist
+narrows *which* trackers can be forged against; it does not make a forgery detectable. Verify a
+signature in the same place and keep both other checks — the three are independent. Until then, treat the secret as a credential — rotate it if it appears in a log,
 a screen share or a proxy's access log.
 
 Also absent, and worth knowing: no rate limiting, and no replay protection beyond event-id
@@ -100,7 +128,8 @@ Startup prints the URLs to configure with the provider.
 Any host that runs Node 22 and gives the process a port. There is no build step and nothing to
 install.
 
-1. Set `SHIP24_WEBHOOK_SECRET`, and `PUBLIC_BASE_URL` to the host's public origin.
+1. Set `SHIP24_WEBHOOK_SECRET`, `SHIP24_TRACKER_ALLOWLIST`, and `PUBLIC_BASE_URL` to the host's
+   public origin.
 2. Start `npm start`; point the host's health check at `/health`.
 3. In the provider's dashboard, set the account webhook to `<PUBLIC_BASE_URL>/hooks/ship24/<secret>`.
 4. Confirm a real event lands by watching the log, or with `GET /events/<secret>`.
@@ -118,8 +147,14 @@ install, so the image is the Node runtime plus the source files.
 fly apps create held-receiver --org personal
 fly volumes create held_events --region lhr --size 1 --app held-receiver --yes
 fly secrets set SHIP24_WEBHOOK_SECRET="$(node -e "console.log(crypto.randomUUID())")" --app held-receiver
+fly secrets set SHIP24_TRACKER_ALLOWLIST="<trackerId>,<trackerId>" --app held-receiver
 fly deploy --app held-receiver
 ```
+
+Registering a further parcel means adding its tracker id to that variable. `fly secrets set` restarts
+the machine, so do it *before* the parcel is handed over rather than while its first events are
+arriving — the restart drops pushes for a few seconds. Nothing is lost permanently either way:
+carrier event lists are cumulative, so `npm run fetch -- --all` rebuilds anything missed.
 
 Then point the provider's account webhook at
 `https://held-receiver.fly.dev/hooks/ship24/<secret>`, and check it:

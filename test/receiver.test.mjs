@@ -26,6 +26,8 @@ const {
   extractTrackings,
   secretRequirementError,
   startupWarnings,
+  parseAllowlist,
+  allowlistRequirementError,
 } = await import("../src/receiver.mjs");
 
 let origin;
@@ -245,4 +247,52 @@ test("the startup banner names the insecure and the retaining configuration", ()
   assert.match(startupWarnings("", false)[0], /no webhook secret/);
   assert.match(startupWarnings("a-secret", true)[0], /RETAIN_LOCATIONS/);
   assert.equal(startupWarnings("", true).length, 2);
+});
+
+// Opting out of the allowlist is legitimate for local development and a
+// liability on a public host, so it is named in the banner like the others.
+test("the startup banner names a deployment running without an allowlist", () => {
+  assert.deepEqual(startupWarnings("a-secret", false, undefined), []);
+  assert.deepEqual(startupWarnings("a-secret", false, "false"), []);
+  assert.match(startupWarnings("a-secret", false, "true")[0], /ALLOW_ANY_TRACKER/);
+  assert.equal(startupWarnings("", true, "true").length, 3);
+});
+
+// The unguessable path authenticates the caller but not the body, so anyone
+// holding the URL can inject events for a tracker we never registered. The
+// allowlist is the cheap half of the fix: it needs nothing from the provider.
+test("an unset allowlist parses to no filtering rather than to an empty one", () => {
+  assert.equal(parseAllowlist(undefined), null);
+  assert.equal(parseAllowlist(""), null);
+  assert.equal(parseAllowlist("   "), null);
+});
+
+test("an allowlist parses to the set of ids it names", () => {
+  assert.deepEqual(parseAllowlist("abc"), new Set(["abc"]));
+  assert.deepEqual(parseAllowlist("abc,def"), new Set(["abc", "def"]));
+});
+
+// Configuration arrives from a shell, a secrets store or a copied-out log, so
+// separators and stray whitespace are tolerated rather than turned into ids
+// that can never match.
+test("allowlist parsing tolerates whitespace, newlines and empty entries", () => {
+  assert.deepEqual(parseAllowlist(" abc , def "), new Set(["abc", "def"]));
+  assert.deepEqual(parseAllowlist(`abc
+def`), new Set(["abc", "def"]));
+  assert.deepEqual(parseAllowlist("abc,,def,"), new Set(["abc", "def"]));
+});
+
+// An id that could never be stored cannot usefully be allowed either, and a
+// typo in configuration should be loud rather than silently unmatchable.
+test("an allowlist entry that is not a usable tracker id is refused", () => {
+  assert.throws(() => parseAllowlist("../../etc/passwd"), /not a usable tracker id/);
+});
+
+// Same shape as the secret check above: a missing security control refuses to
+// start rather than warning into a log nobody reads over a three-day gap.
+test("the receiver refuses to start without an allowlist unless told to", () => {
+  assert.match(allowlistRequirementError(null, undefined), /SHIP24_TRACKER_ALLOWLIST is not set/);
+  assert.match(allowlistRequirementError(null, "false"), /SHIP24_TRACKER_ALLOWLIST is not set/);
+  assert.equal(allowlistRequirementError(null, "true"), null, "the explicit opt-out was ignored");
+  assert.equal(allowlistRequirementError(new Set(["abc"]), undefined), null);
 });
