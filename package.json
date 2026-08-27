@@ -13,6 +13,7 @@
     "test": "node --test",
     "chain-check": "node scripts/chain-check.mjs",
     "provision": "node scripts/provision.mjs",
+    "verify-resolver": "node scripts/verify-resolver.mjs",
     "register": "node scripts/register-parcel.mjs",
     "fetch": "node scripts/fetch-parcel.mjs"
   },
