@@ -106,7 +106,7 @@ test("only a filename-safe tracker id is accepted", () => {
     "../escaped",
     "a/../b",
     "sub/dir",
-    "\\server\share",
+    "\\\\server\\share",
     "",
     ".hidden",
     null,
