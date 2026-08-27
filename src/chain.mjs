@@ -123,16 +123,16 @@ export function signerFor(role, env, provider) {
 // relayer URL, an API key AND an API id before it will relay anything: the relay
 // call goes through assertAndGetMetaTxConfig, which throws without all three.
 //
-// ⭐ Two api ids, not one. The buyer signs against two different contracts, and
-// each is relayed separately:
-//
-//   protocol contract  — the purchase itself
-//   exchange token     — the approval that lets the protocol take the money
-//
 // The id is looked up as apiIds[contract][method], so an id registered for one
-// contract is not an id for the other. Getting the token one wrong fails at the
-// approval, which is the step before the purchase and easy to mistake for a
-// wallet problem.
+// contract is not an id for the other. The purchase goes to the protocol, so
+// META_TX_RELAYER_API_ID_PROTOCOL is the one that must be present.
+//
+// ⚠️ An id for the exchange token is supported and optional, because on this
+// chain the approval is not relayable at all: relaying to a token means calling
+// executeMetaTransaction on it, and neither USDC deployed on Base Sepolia
+// implements that method. The buyer's allowance is therefore set once, directly,
+// as provisioning — see docs/chain.md and scripts/provision.mjs. The plumbing
+// stays because a chain whose token does implement it needs nothing else.
 //
 // The override is merged over the shipped configuration, so the URL and the
 // forwarder ABI survive when only the credentials are given.
@@ -146,19 +146,17 @@ export function metaTxOverrideFrom(config, env) {
 
   // Nothing provisioned: reads work, relaying does not. Say nothing and let the
   // shipped configuration stand.
-  const given = [apiKey, protocolApiId, tokenApiId].filter(Boolean).length;
-  if (given === 0) return relayerUrl ? { relayerUrl } : undefined;
+  const given = [apiKey, protocolApiId].filter(Boolean).length;
+  if (given === 0 && !tokenApiId) return relayerUrl ? { relayerUrl } : undefined;
 
   // A partial set is the failure worth catching here. Left to the SDK it
-  // surfaces deep inside a relay attempt, against a signature already produced,
-  // and only for whichever contract was missing.
-  if (given < 3) {
+  // surfaces deep inside a relay attempt, against a signature already produced.
+  if (given < 2) {
     throw new Error(
-      "META_TX_RELAYER_API_KEY, META_TX_RELAYER_API_ID_PROTOCOL and " +
-        "META_TX_RELAYER_API_ID_EXCHANGE_TOKEN must be set together, or none of them"
+      "META_TX_RELAYER_API_KEY and META_TX_RELAYER_API_ID_PROTOCOL must be set together, or neither"
     );
   }
-  if (!env.EXCHANGE_TOKEN_ADDRESS) {
+  if (tokenApiId && !env.EXCHANGE_TOKEN_ADDRESS) {
     throw new Error("EXCHANGE_TOKEN_ADDRESS is required to key the exchange token's relayer api id");
   }
 
@@ -167,9 +165,47 @@ export function metaTxOverrideFrom(config, env) {
     apiKey,
     apiIds: {
       [config.contracts.protocolDiamond.toLowerCase()]: { [META_TX_METHOD]: protocolApiId },
-      [env.EXCHANGE_TOKEN_ADDRESS.toLowerCase()]: { [META_TX_METHOD]: tokenApiId },
+      ...(tokenApiId
+        ? { [env.EXCHANGE_TOKEN_ADDRESS.toLowerCase()]: { [META_TX_METHOD]: tokenApiId } }
+        : {}),
     },
   };
+}
+
+// ⭐ Read state back after a relayed transaction with this, never directly.
+//
+// The relayer's own wait resolves as soon as the transaction is mined, but the
+// RPC endpoint the protocol ships is a pool of nodes rather than one node, and
+// they do not all have that block at the same instant. A state read taken
+// immediately afterwards can therefore be answered by a node one block behind
+// and report, quite truthfully, that nothing happened — which reads exactly
+// like a failed transaction and is not one.
+//
+// There is nothing to subscribe to here, so polling is the mechanism. `read`
+// returns null or undefined for "not yet" and anything else — including 0 and
+// the empty string — as the answer. A read that throws is retried too: a
+// transient RPC error is precisely the condition this rides out, and the last
+// one is reported if the wait times out, so a genuine fault is still legible.
+export async function waitForState(read, { what, timeoutMs = 60_000, intervalMs = 1_000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError;
+  for (;;) {
+    try {
+      const result = await read();
+      if (result !== null && result !== undefined) return result;
+      lastError = undefined;
+    } catch (err) {
+      lastError = err;
+    }
+    if (Date.now() >= deadline) {
+      const seconds = (timeoutMs / 1000).toFixed(0);
+      throw new Error(
+        `timed out after ${seconds}s waiting for ${what}` +
+          (lastError ? `; the last read failed with: ${lastError.message}` : "")
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
 }
 
 export function createCoreSDK({ config, provider, signer, env = {} }) {

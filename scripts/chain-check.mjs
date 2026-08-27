@@ -9,9 +9,9 @@
 // the worst possible moment — an offer rejected at creation, or a signature
 // nobody can submit.
 
-import { Contract } from "ethers";
+import { Contract, Wallet, utils } from "ethers";
 import { abis } from "@bosonprotocol/core-sdk";
-import { META_TX_METHOD, connect } from "../src/chain.mjs";
+import { META_TX_METHOD, ROLE_KEYS, connect } from "../src/chain.mjs";
 
 const DAY = 86_400;
 const HUNDRED_PERCENT = 10_000; // protocol percentages are basis points
@@ -135,52 +135,57 @@ if (!resolverId || !token) {
 const relayerUrl = coreSDK.metaTxConfig?.relayerUrl ?? config.metaTx.relayerUrl;
 info(`relayer    ${relayerUrl}${env.META_TX_RELAYER_URL ? " (overridden in .env)" : " (shipped in the config)"}`);
 
-// ⭐ Both contracts are checked, because the buyer signs against both: the
-// protocol for the purchase, and the exchange token for the approval that
-// precedes it. An id registered for one is not an id for the other.
-const contracts = [
-  ["protocol", config.contracts.protocolDiamond],
-  ["exchange token", env.EXCHANGE_TOKEN_ADDRESS],
-];
-const provisioned = Boolean(
-  env.META_TX_RELAYER_API_KEY &&
-    env.META_TX_RELAYER_API_ID_PROTOCOL &&
-    env.META_TX_RELAYER_API_ID_EXCHANGE_TOKEN
-);
-if (!provisioned) {
+// The gateway's own readiness check, for this key and this contract — the same
+// GET the SDK makes, called directly. The SDK's own wrapper is a protected
+// method, and reaching past that couples this script to a non-public API that
+// can be renamed in any release.
+const relayerReady = async (contractAddress) => {
+  const query = new URLSearchParams({
+    apiKey: coreSDK.metaTxConfig.apiKey,
+    apiId: coreSDK.metaTxConfig.apiIds[contractAddress.toLowerCase()][META_TX_METHOD],
+    contract: contractAddress,
+  });
+  const response = await fetch(`${relayerUrl}/ready?${query}`, { signal: AbortSignal.timeout(15_000) });
+  return response.ok && Boolean((await response.json())?.ready);
+};
+
+// ⭐ Only the protocol relay is required. The purchase is the one buyer action
+// this system relays, and it is signed against the protocol.
+const protocol = config.contracts.protocolDiamond;
+if (!env.META_TX_RELAYER_API_KEY || !env.META_TX_RELAYER_API_ID_PROTOCOL) {
   warn("relayer credentials not set — reads work, every relay throws");
-  info("set META_TX_RELAYER_API_KEY with both META_TX_RELAYER_API_ID_* values in .env");
+  info("set META_TX_RELAYER_API_KEY and META_TX_RELAYER_API_ID_PROTOCOL in .env");
+} else if (!coreSDK.checkMetaTxConfigSet({ contractAddress: protocol })) {
+  fail(`no relayer api id registered for ${META_TX_METHOD} on the protocol (${protocol})`);
 } else {
-  for (const [label, contractAddress] of contracts) {
-    if (!contractAddress) {
-      fail(`no ${label} address to check the relayer against`);
-      continue;
-    }
-    if (!coreSDK.checkMetaTxConfigSet({ contractAddress })) {
-      fail(`no relayer api id registered for ${META_TX_METHOD} on the ${label} (${contractAddress})`);
-      continue;
-    }
-    try {
-      // The gateway's own readiness check, for this key and this contract —
-      // the same GET the SDK makes, called directly. The SDK's own wrapper is
-      // a protected method, and reaching past that couples this script to a
-      // non-public API that can be renamed in any release. checkMetaTxConfigSet
-      // above has already established the url, the key and this contract's id.
-      const query = new URLSearchParams({
-        apiKey: coreSDK.metaTxConfig.apiKey,
-        apiId: coreSDK.metaTxConfig.apiIds[contractAddress.toLowerCase()][META_TX_METHOD],
-        contract: contractAddress,
-      });
-      const response = await fetch(`${relayerUrl}/ready?${query}`, {
-        signal: AbortSignal.timeout(15_000),
-      });
-      const ready = response.ok && Boolean((await response.json())?.ready);
-      if (ready) ok(`relayer ready to relay to the ${label}`);
-      else fail(`relayer does not report ready for the ${label} (${contractAddress})`);
-    } catch (err) {
-      fail(`relayer readiness check failed for the ${label}: ${err.message}`);
-    }
+  try {
+    if (await relayerReady(protocol)) ok("relayer ready to relay to the protocol");
+    else fail(`relayer does not report ready for the protocol (${protocol})`);
+  } catch (err) {
+    fail(`relayer readiness check failed for the protocol: ${err.message}`);
   }
+}
+
+// ⚠️ The approval is NOT relayed on this configuration, and its api id is
+// optional for that reason. Relaying to a token means calling
+// executeMetaTransaction on the token, and neither USDC deployed on Base
+// Sepolia implements it — so the buyer's allowance is set once, directly, by
+// `npm run provision`. An id that is present but not ready is reported rather
+// than failed, because nothing in this build depends on it.
+if (env.META_TX_RELAYER_API_ID_EXCHANGE_TOKEN) {
+  try {
+    if (await relayerReady(env.EXCHANGE_TOKEN_ADDRESS)) {
+      ok(`relayer ready to relay to the exchange token (${env.EXCHANGE_TOKEN_ADDRESS})`);
+      info("unused: the approval is a direct transaction — see docs/chain.md");
+    } else {
+      warn("an exchange token api id is set but the relayer does not accept it for this token");
+      info("nothing depends on it — the approval is set directly by `npm run provision`");
+    }
+  } catch (err) {
+    warn(`the exchange token relay check could not be made: ${err.message}`);
+  }
+} else {
+  info("the approval is not relayed on this chain — set once by `npm run provision`");
 }
 
 // Probe the endpoint the SDK itself calls rather than the root: a gateway that
@@ -191,16 +196,38 @@ try {
   if (response.ok) ok(`relayer answers its own API — HTTP ${response.status}`);
   else fail(`relayer answered HTTP ${response.status} on its own API`);
   info("this proves the gateway is up and routing; it does not prove a relay,");
-  info("which needs a real signature and is proven by the first live exchange");
+  info("which needs a real signature and is proven by `npm run provision`");
 } catch (err) {
   fail(`relayer unreachable: ${err.message}`);
 }
 
 // --- 6 · the exchange token ------------------------------------------------
+// The buyer's side of the purchase, in the two numbers that stop it: the money
+// and the allowance the protocol needs to take it. Both are read from an
+// address derived from the key, which signs nothing — and both are skipped when
+// no key is present, so this script still runs with none.
 try {
   const erc20 = new Contract(env.EXCHANGE_TOKEN_ADDRESS, abis.ERC20ABI, provider);
   const [symbol, decimals] = await Promise.all([erc20.symbol(), erc20.decimals()]);
   ok(`exchange token responds — ${symbol}, ${decimals} decimals`);
+
+  if (env[ROLE_KEYS.buyer]) {
+    const buyer = new Wallet(env[ROLE_KEYS.buyer]).address;
+    const [balance, allowance] = await Promise.all([
+      erc20.balanceOf(buyer),
+      erc20.allowance(buyer, config.contracts.protocolDiamond),
+    ]);
+    const amount = (value) => `${utils.formatUnits(value, decimals)} ${symbol}`;
+    info(`buyer      ${buyer}`);
+    if (balance.isZero()) warn("the buyer holds none of the exchange token — no offer can be committed to");
+    else info(`balance    ${amount(balance)}`);
+    if (allowance.isZero()) {
+      warn("the buyer has approved nothing — the purchase reverts when the protocol takes the money");
+      info("run `npm run provision` to set it");
+    } else {
+      info(`allowance  ${amount(allowance)} to the protocol`);
+    }
+  }
 } catch (err) {
   fail(`exchange token unreadable: ${err.shortMessage ?? err.message}`);
 }

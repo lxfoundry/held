@@ -13,6 +13,18 @@ npm run chain-check
 It reads configuration, the node, the protocol's limits, the dispute resolver, the relayer and the
 exchange token, and exits non-zero if any of them is not what the build assumes.
 
+Set up the accounts that path needs — the seller's account and the buyer's allowance — with:
+
+```
+npm run provision              # do whatever is missing
+npm run provision -- --dry-run # report only
+```
+
+It is idempotent and takes its target from `.env`, so it is also the migration tool: pointed at
+another configuration it provisions that one from scratch. It is the first thing that proves the
+relayer end to end, because the seller's account is created **gaslessly**, from a wallet holding no
+native currency at all.
+
 ## Pinned versions
 
 | Package | Version | Why this one |
@@ -67,51 +79,76 @@ inside the protocol configuration.
 | `META_TX_RELAYER_URL` | no | Overrides the URL shipped in the configuration |
 | `META_TX_RELAYER_API_KEY` | **yes** | Sent to the gateway as `x-api-key` |
 | `META_TX_RELAYER_API_ID_PROTOCOL` | **yes** | The purchase, relayed to the protocol contract |
-| `META_TX_RELAYER_API_ID_EXCHANGE_TOKEN` | **yes** | The approval, relayed to the token contract |
+| `META_TX_RELAYER_API_ID_EXCHANGE_TOKEN` | no | Not used by either design — see below. Leave it empty |
 
-⭐ **Two ids, because the buyer signs against two contracts.** The purchase goes to the protocol.
-The approval that lets the protocol take the money goes to the exchange token, through
-`relayNativeMetaTransaction`, which asserts with the **token** as the contract address. An id is
-looked up as `apiIds[contract][method]`, the method defaulting to `executeMetaTransaction`, so an id
-registered for one contract is not an id for the other.
+An id is looked up as `apiIds[contract][method]`, the method defaulting to `executeMetaTransaction`,
+so an id registered for one contract is not an id for another. The purchase is signed against the
+protocol, which is why the protocol id is the one that must be present.
 
-⚠️ **A missing token id fails at the approval** — the step before the purchase — which reads as a
-wallet problem rather than a relayer one.
+### The approval, and why there is no second api id
 
-`src/chain.mjs` nests both ids under their lowercased addresses. The SDK lowercases the address
-before looking it up, so a mixed-case address in `.env` would otherwise build a key it can never
-match. The override is merged over the shipped configuration, so the URL and the forwarder ABI
-survive when only the credentials are given.
+The buyer needs the protocol to be able to take the money, and the obvious design is to relay that
+authorisation too, so the buyer never needs gas for anything. **That design is available on this
+chain.** It is not the one this build uses — see the end of this section — but the reason is a
+deliberate choice, not a limitation.
 
-The gateway speaks two endpoints that matter here:
+⚠️ **Do not reason about it from `executeMetaTransaction` on the token.** That was the older pattern:
+an ERC-20 carrying its own native meta-transaction entrypoint, which is what the Polygon child tokens
+implement. USDC on Base and Base Sepolia does **not** work that way and there is no credential that
+makes it. Reading the absence of that method as "the approval cannot be relayed" is wrong, and was
+believed here for a while.
 
-| Endpoint | Used for |
+⭐ **The mechanism is ERC-3009.** The buyer signs a `ReceiveWithAuthorization` payload for the
+exchange token, and that authorisation travels **inside the purchase meta-transaction sent to the
+protocol** — `relayMetaTransaction` routes to
+`executeMetaTransactionWithTokenTransferAuthorization` when `transferAuthorizations` is non-empty.
+There is no separate relay aimed at the token, which is why one api id, for the protocol, is all the
+relayer needs.
+
+Boson moved to this design across all three layers:
+
+| Layer | Change |
 |---|---|
-| `GET /api/v2/meta-tx/systemInfo?networkId=<chainId>` | Reachability, and the forwarder domain for the ERC-20-fee path |
-| `POST /api/v2/meta-tx/native` | The relay itself — every signed meta-transaction this system sends |
+| Protocol contracts | [bosonprotocol/boson-protocol-contracts#1123](https://github.com/bosonprotocol/boson-protocol-contracts/pull/1123) |
+| Core SDK | [bosonprotocol/core-components#1028](https://github.com/bosonprotocol/core-components/pull/1028) |
+| Meta-tx gateway | [bosonprotocol/meta-tx-gateway#66](https://github.com/bosonprotocol/meta-tx-gateway/pull/66) |
 
-`chain-check` probes `systemInfo` rather than the gateway root, because a gateway that is up but not
-routing this API would pass a root check and fail every relay. **It proves the gateway is up and
-routing. It does not prove a relay** — that needs a real signature, and is proven by the first live
-exchange.
+Read live on `testing-84532-0`, 27 August 2026:
 
-⚠️ **`coreSDK.isMetaTxConfigSet` is a real check, despite appearances.** It tests the same three
-fields the relay path asserts on, so `false` means relaying will throw. The field names read as
-leftovers from the retired third-party relayer, and they are — but the protocol's own gateway kept
-that service's API shape, credentials included. A shipped configuration on its own makes it `false`;
-supplying the credentials makes it `true`. It answers **per contract**: pass
-`checkMetaTxConfigSet({ contractAddress })` to ask about the exchange token rather than the protocol,
-which is what `chain-check` does for both.
+| Checked | Result |
+|---|---|
+| Diamond routes `executeMetaTransaction(address,string,bytes,uint256,bytes)` | facet `0xe22Eaede9c1769671F76BA1c7717746388321D6F` |
+| Diamond routes `executeMetaTransactionWithTokenTransferAuthorization(…)` | same facet — **the ERC-3009 entrypoint is live** |
+| `0x036cbd53842c5426634e7929541ec2318f3dcf7e` — Circle's USDC, what `.env` names | **ERC-3009 present** (`authorizationState`, `DOMAIN_SEPARATOR`, `version` `"2"`), EIP-2612 `nonces` present |
+| `0x8A04d904055528a69f3E4594DDA308A31aeb8457` — "USDC Testnet", shipped as USDC in the configuration | a plain ERC-20 behind a proxy: no ERC-3009, no `permit`, no `nonces` |
 
-⚠️ **Unprovisioned, the SDK never reaches its own clean error.** The id lookup indexes `apiIds`
-before testing whether it exists, so a relay attempt with no credentials dies on a `TypeError` from
-inside the SDK instead of on the intended "not configured to relay meta transactions" message.
-`npm run chain-check` reports the condition directly rather than letting it surface that way.
+The pinned `core-sdk@1.48.1-alpha.2` already carries the signing helpers —
+`signReceiveWithErc3009Authorization` and, for tokens that need them,
+`signReceiveWithErc2612Permit`, `signReceiveWithPermit2` and a DAI-permit variant. Each returns a
+`TransferAuthorization` tagged with its strategy, handed to `relayMetaTransaction` as
+`transferAuthorizations`.
 
-⚠️ **`systemInfo` returns a stale forwarder domain** on this configuration — a leftover name and an
-empty `verifyingContract`. It is consumed only by the ERC-20-fee forwarder path, which this system
-does not use: our transactions go through the protocol's own meta-transaction handler and are relayed
-by `POST /api/v2/meta-tx/native`. Do not build anything on that response.
+⚠️ **`/ready` proves registration, not capability.** It answers whether an api id is registered
+against a contract. `0x8A04d9…` reports ready and implements none of the three authorisation
+standards, so a `ready` response is not evidence that a path works.
+
+### What this build does instead
+
+**The buyer grants a plain allowance once, as provisioning** — `npm run provision`, an ordinary
+transaction from the buyer's own wallet, exactly as that wallet is funded once. Everything afterwards
+is relayed: the purchase, the dispute, the escalation.
+
+That is one direct transaction in the lifetime of an account, against a pre-provisioned wallet, and
+it is already done. **ERC-3009 is how that last transaction would be removed** if the buyer is ever
+expected to arrive with no gas at all — a real scenario for a product whose whole premise is a
+stranger with a wallet, and the reason this is written down rather than left as a footnote.
+
+⚠️ **The allowance is granted to the balance, not to infinity.** An unlimited approval turns a
+single bad signature into a drained wallet, and re-running the provisioning script re-grants it.
+
+`META_TX_RELAYER_API_ID_EXCHANGE_TOKEN` therefore stays empty — not because the token cannot be
+relayed to, but because nothing in either design relays a separate transaction to it.
+
 
 ## Protocol limits
 
@@ -149,6 +186,14 @@ configHandler.getProtocolFeePercentage()        // throws "is not a function"
 ⚠️ **Not every protocol limit is on the SDK.** Its protocol-config surface exposes one method. The
 period floors, fees and escalation deposit are read from the contract directly, through the ABIs the
 SDK re-exports as `abis`.
+
+⭐ **Never read state back directly after a relayed transaction — use `waitForState`.** The
+relayer's `wait()` resolves as soon as the transaction is mined, but the RPC endpoint the protocol
+ships is a **pool** of nodes, and they do not all have that block at the same instant. A read taken
+immediately afterwards can be answered by a node one block behind and report, quite truthfully, that
+nothing happened. It reads exactly like a failed transaction and is not one — this was first hit
+creating the seller account, which succeeded while the script that created it concluded it had
+failed. There is nothing to subscribe to, so `waitForState` polls the read until it answers.
 
 ⚠️ **`src/chain.mjs` has dependencies and `src/receiver.mjs` does not.** The receiver is the one
 process exposed to the internet and it stays dependency-free; nothing in it may import the chain
