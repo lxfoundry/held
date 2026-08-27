@@ -56,9 +56,14 @@ const note = (line) => {
   console.log(`⚠ ${line}`);
 };
 
+// ⚠️ The resolver id is required here even though it is not read until the very
+// end. Everything before that point signs and spends, so a missing id must stop
+// the run before the seller account is created rather than after — an unset one
+// otherwise surfaces as an opaque encoding error from inside ethers, with two
+// real transactions already on the chain.
 const { env, config, provider, signer: seller, coreSDK } = connect({
   role: "seller",
-  required: ["EXCHANGE_TOKEN_ADDRESS"],
+  required: ["EXCHANGE_TOKEN_ADDRESS", "DISPUTE_RESOLVER_ID"],
 });
 const protocol = config.contracts.protocolDiamond;
 const explorer = (hash) => config.getTxExplorerUrl?.(hash) ?? hash;
