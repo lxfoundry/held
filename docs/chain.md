@@ -13,6 +13,18 @@ npm run chain-check
 It reads configuration, the node, the protocol's limits, the dispute resolver, the relayer and the
 exchange token, and exits non-zero if any of them is not what the build assumes.
 
+Set up the accounts that path needs — the seller's account and the buyer's allowance — with:
+
+```
+npm run provision              # do whatever is missing
+npm run provision -- --dry-run # report only
+```
+
+It is idempotent and takes its target from `.env`, so it is also the migration tool: pointed at
+another configuration it provisions that one from scratch. It is the first thing that proves the
+relayer end to end, because the seller's account is created **gaslessly**, from a wallet holding no
+native currency at all.
+
 ## Pinned versions
 
 | Package | Version | Why this one |
@@ -67,16 +79,43 @@ inside the protocol configuration.
 | `META_TX_RELAYER_URL` | no | Overrides the URL shipped in the configuration |
 | `META_TX_RELAYER_API_KEY` | **yes** | Sent to the gateway as `x-api-key` |
 | `META_TX_RELAYER_API_ID_PROTOCOL` | **yes** | The purchase, relayed to the protocol contract |
-| `META_TX_RELAYER_API_ID_EXCHANGE_TOKEN` | **yes** | The approval, relayed to the token contract |
+| `META_TX_RELAYER_API_ID_EXCHANGE_TOKEN` | no | Unusable on this chain — see below. Leave it empty |
 
-⭐ **Two ids, because the buyer signs against two contracts.** The purchase goes to the protocol.
-The approval that lets the protocol take the money goes to the exchange token, through
-`relayNativeMetaTransaction`, which asserts with the **token** as the contract address. An id is
-looked up as `apiIds[contract][method]`, the method defaulting to `executeMetaTransaction`, so an id
-registered for one contract is not an id for the other.
+An id is looked up as `apiIds[contract][method]`, the method defaulting to `executeMetaTransaction`,
+so an id registered for one contract is not an id for another. The purchase is signed against the
+protocol, which is why the protocol id is the one that must be present.
 
-⚠️ **A missing token id fails at the approval** — the step before the purchase — which reads as a
-wallet problem rather than a relayer one.
+### ⚠️ The approval cannot be relayed on this chain
+
+The buyer needs an allowance before the protocol can take the money, and the obvious design is to
+relay that approval too, so the buyer never needs gas for anything. **It does not work here, and no
+credential will make it work.**
+
+Relaying to a token means calling `executeMetaTransaction` **on the token**: the SDK's
+`signNativeMetaTxApproveExchangeToken` signs an approval, and `relayNativeMetaTransaction` asserts
+with the token as the contract address. That requires the token to implement the native
+meta-transaction interface — the pattern the Polygon child tokens have.
+
+Neither USDC on Base Sepolia does:
+
+| Token | | |
+|---|---|---|
+| `0x036cbd53842c5426634e7929541ec2318f3dcf7e` | Circle's USDC, and what `.env` names | EIP-2612 `permit` and `nonces`, **no `executeMetaTransaction`** |
+| `0x8A04d904055528a69f3E4594DDA308A31aeb8457` | "USDC Testnet", shipped as USDC in the protocol configuration | a plain ERC-20 behind a proxy — no `permit`, no `nonces`, **no `executeMetaTransaction`** |
+
+⚠️ **The gateway will still say `ready` for a token it cannot actually relay to.** `/ready` answers
+whether an api id is registered against a contract, not whether that contract can execute a
+meta-transaction. An id registered for the second token above reports ready and would revert on use.
+Do not read `ready` as proof the path works.
+
+⭐ **So the allowance is provisioning, not a step in the purchase.** `npm run provision` grants it
+once, as an ordinary transaction from the buyer, exactly as the wallet is funded once. The buyer
+signs one direct transaction in the lifetime of the account and relays everything afterwards — the
+purchase, the dispute, the escalation. Switching to a chain whose token does implement the interface
+needs no code change: set `META_TX_RELAYER_API_ID_EXCHANGE_TOKEN` and the plumbing is already there.
+
+⚠️ **The approval is granted to the balance, not to infinity.** An unlimited approval turns a
+single bad signature into a drained wallet, and re-running the provisioning script re-grants it.
 
 `src/chain.mjs` nests both ids under their lowercased addresses. The SDK lowercases the address
 before looking it up, so a mixed-case address in `.env` would otherwise build a key it can never
@@ -149,6 +188,14 @@ configHandler.getProtocolFeePercentage()        // throws "is not a function"
 ⚠️ **Not every protocol limit is on the SDK.** Its protocol-config surface exposes one method. The
 period floors, fees and escalation deposit are read from the contract directly, through the ABIs the
 SDK re-exports as `abis`.
+
+⭐ **Never read state back directly after a relayed transaction — use `waitForState`.** The
+relayer's `wait()` resolves as soon as the transaction is mined, but the RPC endpoint the protocol
+ships is a **pool** of nodes, and they do not all have that block at the same instant. A read taken
+immediately afterwards can be answered by a node one block behind and report, quite truthfully, that
+nothing happened. It reads exactly like a failed transaction and is not one — this was first hit
+creating the seller account, which succeeded while the script that created it concluded it had
+failed. There is nothing to subscribe to, so `waitForState` polls the read until it answers.
 
 ⚠️ **`src/chain.mjs` has dependencies and `src/receiver.mjs` does not.** The receiver is the one
 process exposed to the internet and it stays dependency-free; nothing in it may import the chain
