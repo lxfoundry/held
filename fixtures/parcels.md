@@ -15,8 +15,8 @@ still `null`. Scrub fixtures by pattern over the whole payload, not by field nam
 
 | Parcel | Tracking number | Tracker id | Service | Posted | Job |
 |---|---|---|---|---|---|
-| **A** | `MZ544750899GB` | `8645991e-538a-40a2-8618-6f9d3777a6ae` | Tracked 24 | 2026-08-26, handed over 15:21Z | Delivered-path event stream; the damage photographs; the `gb-post` proof — ✅ **first scan event received** |
-| **B1** | `VU499656714GB` | `96a4693b-33b5-45b3-9fff-32c596798c96` | Tracked 48 | 2026-08-27 *(labelled 26 Aug)* | In-transit events over a multi-day window — 🏷️ tracker registered ahead of hand-over, no events until it is accepted |
+| **A** | `MZ544750899GB` | `8645991e-538a-40a2-8618-6f9d3777a6ae` | Tracked 24 | 2026-08-26, handed over 14:21Z | Delivered-path event stream; the damage photographs; the `gb-post` proof — ✅ **first scan event received** |
+| **B1** | `VU499656714GB` | `96a4693b-33b5-45b3-9fff-32c596798c96` | Tracked 48 | 2026-08-27, handed over 14:16Z *(labelled 26 Aug)* | In-transit events over a multi-day window — ✅ **accepted into the network**; registering the tracker a day early caught the acceptance scan itself |
 | **B2** | — | — | Tracked 48 | 2026-08-28 | Backup undelivered-path target |
 | **B3** | — | — | Tracked 48 | 2026-09-01 | ⭐ Primary undelivered-path target — posted the morning it is needed, so non-delivery is certain |
 

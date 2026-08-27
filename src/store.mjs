@@ -41,8 +41,18 @@ const LOCK_STALE_MS = 30_000;
 const LOCK_RETRY_MS = 25;
 const LOCK_TIMEOUT_MS = 5_000;
 
+// ⚠️ `occurrenceDatetime` first, and the order matters. The provider sends both
+// fields for the same moment, and only `occurrenceDatetime` carries the true
+// offset: `datetime` repeats the same wall-clock reading with a `Z` appended,
+// so it is local time labelled as UTC and parses an offset early.
+//
+// Observed live: an event with occurrenceDatetime 2026-08-27T15:16:37+01:00
+// carries datetime 2026-08-27T15:16:37.000Z — an hour apart — and the receiver
+// stored it at 14:21:40Z. Reading `datetime` would place the event 55 minutes
+// after it was recorded as arriving, which is what settles which field is
+// right: nothing can be stored before it happens.
 function timeOf(event) {
-  const raw = event?.datetime ?? event?.occurrenceDatetime;
+  const raw = event?.occurrenceDatetime ?? event?.datetime;
   const parsed = raw ? Date.parse(raw) : Number.NaN;
   return Number.isNaN(parsed) ? 0 : parsed;
 }
@@ -111,7 +121,9 @@ export function deriveState(events = []) {
     everAvailableForPickup,
     observed: [...observed],
     eventCount: sorted.length,
-    lastEventAt: last ? (last.datetime ?? last.occurrenceDatetime ?? null) : null,
+    // Same field order, and for the same reason as timeOf above: this is the
+    // timestamp anything downstream displays or measures freshness against.
+    lastEventAt: last ? (last.occurrenceDatetime ?? last.datetime ?? null) : null,
   };
 }
 

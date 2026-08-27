@@ -173,6 +173,44 @@ test("lastEventAt falls back to occurrenceDatetime", () => {
   assert.equal(state.lastEventAt, "2026-08-26T15:21:01+01:00");
 });
 
+// ⚠️ Both fields describe the same moment and they disagree by the offset. The
+// provider's `datetime` repeats the local wall clock with a `Z` appended, so it
+// is local time labelled as UTC; `occurrenceDatetime` carries the real offset.
+// These are the two fields exactly as a live event carried them.
+test("the event time is read from the field carrying the offset", () => {
+  const state = deriveState([
+    {
+      eventId: "a",
+      statusMilestone: "in_transit",
+      occurrenceDatetime: "2026-08-27T15:16:37+01:00",
+      datetime: "2026-08-27T15:16:37.000Z",
+    },
+  ]);
+  assert.equal(state.lastEventAt, "2026-08-27T15:16:37+01:00");
+  assert.equal(Date.parse(state.lastEventAt), Date.parse("2026-08-27T14:16:37.000Z"));
+});
+
+test("events are ordered by their true time, not by the mislabelled one", () => {
+  // Two carriers an hour apart in offset. Read as UTC, the later event sorts
+  // first and a delivered milestone would be overtaken by an earlier scan.
+  const state = deriveState([
+    {
+      eventId: "later",
+      statusMilestone: "delivered",
+      occurrenceDatetime: "2026-08-27T15:30:00+01:00", // 14:30Z
+      datetime: "2026-08-27T15:30:00.000Z",
+    },
+    {
+      eventId: "earlier",
+      statusMilestone: "in_transit",
+      occurrenceDatetime: "2026-08-27T15:00:00+00:00", // 15:00Z — actually later
+      datetime: "2026-08-27T15:00:00.000Z",
+    },
+  ]);
+  assert.equal(state.lastEventAt, "2026-08-27T15:00:00+00:00");
+  assert.equal(state.delivered, true);
+});
+
 test("concurrent writes within one process do not lose events", () => {
   withStore((store) => {
     for (let i = 0; i < 25; i += 1) {
