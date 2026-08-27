@@ -218,6 +218,60 @@ Derived state follows [the mapping spec](./specs/tracking-state-mapping.md) §5:
   tracker would rewrite the file with only the current push and silently drop the sticky flags
   above — which would let the watchdog raise a dispute against a seller who demonstrably performed.
 
+### ⚠️ Event times: read `occurrenceDatetime`, never `datetime`
+
+Every event carries both fields for the same moment, and **they disagree by the UTC offset**.
+`occurrenceDatetime` is offset-bearing and correct. `datetime` repeats the same wall-clock reading
+with a `Z` appended, so it is **local time labelled as UTC** and parses an hour early under BST.
+
+A live event, verbatim:
+
+```json
+{ "occurrenceDatetime": "2026-08-27T15:16:37+01:00",
+  "datetime":           "2026-08-27T15:16:37.000Z",
+  "utcOffset":          "+01:00" }
+```
+
+The two cannot both be true — they are an hour apart. The receiver recorded that event arriving at
+`14:21:40Z`, which settles it: reading `datetime` would place the event 55 minutes *after* it was
+stored, and nothing can be stored before it happens. `occurrenceDatetime` is the real time.
+
+Both `timeOf` and `lastEventAt` therefore prefer `occurrenceDatetime` and fall back to `datetime`
+only when it is absent. Two consequences follow, and neither is theoretical:
+
+- **Ordering.** Within one carrier every event shifts by the same amount, so the order survives.
+  Across two offsets it does not, and the sort can put a later event first — which for a `delivered`
+  scan means the milestone the buyer sees is wrong.
+- **Anything measuring freshness or displaying "last update"** is an hour out, in the direction that
+  makes a stale parcel look recently scanned.
+
+⚠️ **A snapshot is only rewritten when an event is added**, so a change to how state is derived does
+not reach snapshots already on disk. They correct themselves at the next event; a stored state and
+the current code can otherwise disagree.
+
+### ⭐ Resolve an exchange by tracker id, never by tracking number
+
+A tracking number does not identify a tracker. The same number can exist under several tracker ids —
+registered twice, or pushed by the provider itself — and the store is keyed on the tracker id
+precisely because that is the identifier the provider guarantees.
+
+This is not hypothetical. When the account webhook was first pointed at a deployed receiver, a push
+arrived carrying **a tracking number already in the store, under a different tracker id, in state
+`delivered`, with an event dated four years earlier** and a UUID in `shipmentReference`. It is
+consistent with a provider sample push rather than a real parcel, and it is harmless as stored data.
+
+It would not have been harmless to an adapter that looked an exchange up by tracking number: that
+adapter would have read a `delivered` milestone for a parcel still in transit, and `delivered`
+enables the buyer's confirmation — the one action that pays the seller irreversibly.
+
+**So the rule is structural, not stylistic:** an exchange record names a `trackerId`, and every
+lookup from a tracking event to an exchange goes through it. A tracking number is a label to show a
+human, never a key.
+
+⚠️ **A receiver that has been pointed at a live account may hold trackers nobody registered.** Check
+what is in the store before trusting a count, and delete anything unrecognised rather than leaving it
+to appear mid-demonstration.
+
 ## Personal data
 
 Courier payloads carry postcodes and address fragments. Scrubbing happens inside the store, on the

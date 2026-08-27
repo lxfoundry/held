@@ -36,6 +36,11 @@ Every task's requirements implicitly include these. Values are copied from the s
 - **Only two protocol writes are ever automatic:** `raiseDispute` and `escalateDispute`. Never
   `completeExchange`, `resolveDispute` or `retractDispute` from automated code.
 - **The mapping keys on `statusMilestone`.** Reading `statusCode` in the adapter is a defect.
+- **An exchange is resolved by `trackerId`, never by tracking number.** The same tracking number can
+  exist under more than one tracker id, and one observed live carried `delivered` for a parcel still
+  in transit. `delivered` enables the action that pays the seller.
+- **Event times come from `occurrenceDatetime`.** The provider's `datetime` field repeats the local
+  wall clock with a `Z` appended and parses an hour early under BST.
 - **The watchdog is driven by a clock, never by an event.**
 - **Sticky stand-down:** once `available_for_pickup` has ever been observed for an exchange, no
   dispute is raised for it automatically, whatever the milestone later becomes.
