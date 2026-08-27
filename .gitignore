@@ -80,6 +80,13 @@ coverage/
 webhook-tunnel.log
 .ngrok*
 
+# Atomic-write leftovers from the event store. Temp names carry a pid and a
+# nonce, so match the suffix rather than a fixed shape.
+*.tmp
+
+# Lock directories held while a store write is in progress
+*.lock/
+
 # --- Editors & OS ---
 .vscode/
 !.vscode/extensions.json

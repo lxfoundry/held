@@ -11,29 +11,10 @@
 // it never registers. Registering late loses no history — carrier event lists
 // are cumulative and the first fetch returns everything to date.
 //
-// Zero dependencies: uses the global fetch built into Node 18+.
+// Zero dependencies: uses the global fetch built into Node. This repository
+// requires Node 22 or later — see engines in package.json.
 
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const API_BASE = "https://api.ship24.com/public/v1";
-
-function loadEnv() {
-  let raw;
-  try {
-    raw = readFileSync(join(ROOT, ".env"), "utf8");
-  } catch {
-    fail(".env not found. Copy .env.example to .env and fill it in.");
-  }
-  const env = {};
-  for (const line of raw.split(/\r?\n/)) {
-    const m = /^\s*([A-Z0-9_]+)\s*=\s*(.*)$/.exec(line);
-    if (m) env[m[1]] = m[2].trim().replace(/^["']|["']$/g, "");
-  }
-  return env;
-}
+import { loadEnv } from "../src/env.mjs";
 
 function fail(msg) {
   console.error(`✗ ${msg}`);
@@ -61,8 +42,15 @@ if (!trackingNumber) {
 }
 
 const courierCode = courierArg || "gb-post";
-const { SHIP24_API_KEY: apiKey } = loadEnv();
-if (!apiKey) fail("SHIP24_API_KEY is not set in .env");
+
+let env;
+try {
+  env = loadEnv({ required: ["SHIP24_API_KEY"], only: ["SHIP24_API_KEY", "SHIP24_API_BASE"] });
+} catch (err) {
+  fail(err.message);
+}
+const apiKey = env.SHIP24_API_KEY;
+const API_BASE = (env.SHIP24_API_BASE ?? "https://api.ship24.com/public/v1").replace(/\/$/, "");
 
 const body = { trackingNumber, courierCode: [courierCode] };
 if (shipmentReference) body.shipmentReference = shipmentReference;

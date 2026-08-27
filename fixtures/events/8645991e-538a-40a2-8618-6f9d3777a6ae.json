@@ -1,0 +1,76 @@
+{
+  "trackerId": "8645991e-538a-40a2-8618-6f9d3777a6ae",
+  "trackingNumber": "MZ544750899GB",
+  "shipmentReference": null,
+  "courierCode": [
+    "gb-post"
+  ],
+  "state": {
+    "current": "in_transit",
+    "delivered": false,
+    "everAvailableForPickup": false,
+    "observed": [
+      "in_transit"
+    ],
+    "eventCount": 1,
+    "lastEventAt": "2026-08-26T15:21:01.000Z"
+  },
+  "shipment": {
+    "shipmentId": "e1aee211-0920-43ee-a6fe-dfe8ddff8bf5",
+    "statusCode": "transit_handover",
+    "statusCategory": "transit",
+    "statusMilestone": "in_transit",
+    "originCountryCode": null,
+    "destinationCountryCode": null,
+    "delivery": {
+      "estimatedDeliveryDate": null,
+      "courierEstimatedDeliveryDate": null,
+      "service": null,
+      "signedBy": null
+    },
+    "trackingNumbers": [
+      {
+        "tn": "MZ544750899GB"
+      }
+    ],
+    "recipient": {
+      "name": null,
+      "address": null,
+      "postCode": null,
+      "city": null,
+      "subdivision": null
+    }
+  },
+  "statistics": {
+    "timestamps": {
+      "infoReceivedDatetime": "2026-08-26T15:21:01+01:00",
+      "inTransitDatetime": "2026-08-26T15:21:01+01:00",
+      "outForDeliveryDatetime": null,
+      "failedAttemptDatetime": null,
+      "availableForPickupDatetime": null,
+      "exceptionDatetime": null,
+      "deliveredDatetime": null
+    }
+  },
+  "events": [
+    {
+      "eventId": "00c50668-a79d-4b1e-9084-22d448eef576",
+      "trackingNumber": "MZ544750899GB",
+      "eventTrackingNumber": "MZ544750899GB",
+      "status": "Shipment Received",
+      "occurrenceDatetime": "2026-08-26T15:21:01+01:00",
+      "order": null,
+      "datetime": "2026-08-26T15:21:01.000Z",
+      "hasNoTime": false,
+      "utcOffset": "+01:00",
+      "location": "[location]",
+      "sourceCode": "royal-mail-tracking",
+      "courierCode": "gb-post",
+      "statusCode": "transit_handover",
+      "statusCategory": "transit",
+      "statusMilestone": "in_transit"
+    }
+  ],
+  "firstSeenAt": "2026-08-26T18:01:00.886Z",
+  "lastUpdatedAt": "2026-08-26T18:01:00.886Z"
+}

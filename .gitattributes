@@ -1,0 +1,6 @@
+# Shell scripts run inside a Linux container. A CRLF line ending makes the
+# interpreter line unusable and fails with a message that names the wrong file,
+# so these are pinned to LF whatever the checkout platform does.
+*.sh text eol=lf
+docker-entrypoint.sh text eol=lf
+Dockerfile text eol=lf

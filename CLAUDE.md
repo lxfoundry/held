@@ -131,20 +131,25 @@ than hidden.
 Front-end scope is the single largest risk to this project. The product is a **proposition with a
 working prototype**, and it says so.
 
-## Layout (not yet created)
+## Layout
 
 Five components are genuinely new work; everything else is reuse:
 
 | # | Component | Notes |
 |---|---|---|
-| 1 | **Oracle adapter + watchdog** | Ship24 webhook receiver mapping tracking events to protocol state transitions, plus the deadline watchdog. Not optional |
+| 1 | **Oracle adapter + watchdog** | Ship24 webhook receiver mapping tracking events to protocol state transitions, plus the deadline watchdog. Not optional. **The receiver exists** (`src/receiver.mjs`, [`docs/receiver.md`](./docs/receiver.md)); the mapping to protocol actions and the watchdog do not yet |
 | 2 | **Evidence assembly** | ⭐ The shared core. Reads tracking, photos, messages and offer terms; determines what's missing; requests it |
 | 3 | **Mediator behaviour** | Thin layer on (2): propose a percentage split with visible reasoning |
 | 4 | **Clerk behaviour** | Thin layer on (2): render the case file |
 | 5 | **Buyer UI** | Thin but genuinely polished. The only visible surface |
 
-Directory names are settled when the build plan lands. Two paths are fixed now:
+Directory names for the components not yet written are settled when the build plan lands. What
+exists is fixed:
 
+- `src/` — runtime code. Zero dependencies so far, and the receiver stays that way
+- `scripts/` — provisioning and capture, run by hand. Never a runtime path
+- `test/` — `node --test`, no framework
+- `fixtures/` — captured tracking data, scrubbed at capture time and committed
 - `docs/specs/` — what the system is and how it behaves
 - `docs/plans/` — how a piece of it gets built
 

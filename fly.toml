@@ -1,0 +1,56 @@
+# Fly.io configuration for the tracking webhook receiver.
+#
+# Set the webhook secret before the first deploy — the receiver refuses to
+# start without one:
+#
+#   fly secrets set SHIP24_WEBHOOK_SECRET="$(node -e "console.log(crypto.randomUUID())")"
+#
+# The tracking provider's API key is deliberately NOT set here. The receiver
+# never calls the provider, only listens, and an internet-facing machine has no
+# reason to hold a credential it cannot use. Recovery fetches run locally.
+
+app = "held-receiver"
+primary_region = "lhr"
+
+[build]
+
+[env]
+  PORT = "8080"
+  EVENTS_DIR = "/data/events"
+  PUBLIC_BASE_URL = "https://held-receiver.fly.dev"
+
+# Captured events survive restarts and redeploys here. Losing the volume is
+# recoverable — carrier event lists are cumulative, so a fetch rebuilds the
+# history — but the record of when each event actually arrived is not.
+[[mounts]]
+  source = "held_events"
+  destination = "/data"
+  initial_size = "1gb"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  processes = ["app"]
+
+  # ⭐ The machine must not sleep. The whole point of deploying this is to be
+  # listening when a parcel moves at 03:00 on a bank holiday, and a push that
+  # arrives at a stopped machine pays a cold start at best. auto_start is left
+  # on purely as a safety net if something stops it.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/health"
+
+# ⚠️ Do not scale beyond one machine. The event store is a directory on a single
+# volume, and the lock that makes concurrent writes safe is per-filesystem: a
+# second machine would keep a separate, divergent store rather than share this
+# one.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
