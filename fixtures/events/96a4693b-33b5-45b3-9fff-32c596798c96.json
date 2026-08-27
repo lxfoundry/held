@@ -6,18 +6,20 @@
     "gb-post"
   ],
   "state": {
-    "current": "pending",
+    "current": "in_transit",
     "delivered": false,
     "everAvailableForPickup": false,
-    "observed": [],
-    "eventCount": 0,
-    "lastEventAt": null
+    "observed": [
+      "in_transit"
+    ],
+    "eventCount": 1,
+    "lastEventAt": "2026-08-27T15:16:37.000Z"
   },
   "shipment": {
     "shipmentId": "bc633aed-2385-4486-8c44-8e6d41692c18",
-    "statusCode": null,
-    "statusCategory": null,
-    "statusMilestone": "pending",
+    "statusCode": "transit_handover",
+    "statusCategory": "transit",
+    "statusMilestone": "in_transit",
     "originCountryCode": null,
     "destinationCountryCode": null,
     "delivery": {
@@ -41,8 +43,8 @@
   },
   "statistics": {
     "timestamps": {
-      "infoReceivedDatetime": null,
-      "inTransitDatetime": null,
+      "infoReceivedDatetime": "2026-08-27T15:16:37+01:00",
+      "inTransitDatetime": "2026-08-27T15:16:37+01:00",
       "outForDeliveryDatetime": null,
       "failedAttemptDatetime": null,
       "availableForPickupDatetime": null,
@@ -50,7 +52,25 @@
       "deliveredDatetime": null
     }
   },
-  "events": [],
+  "events": [
+    {
+      "eventId": "42fe2587-4e3a-44c3-969d-73665b406a40",
+      "trackingNumber": "VU499656714GB",
+      "eventTrackingNumber": "VU499656714GB",
+      "status": "Shipment Received",
+      "occurrenceDatetime": "2026-08-27T15:16:37+01:00",
+      "order": null,
+      "datetime": "2026-08-27T15:16:37.000Z",
+      "hasNoTime": false,
+      "utcOffset": "+01:00",
+      "location": "[location]",
+      "sourceCode": "royal-mail-tracking",
+      "courierCode": "gb-post",
+      "statusCode": "transit_handover",
+      "statusCategory": "transit",
+      "statusMilestone": "in_transit"
+    }
+  ],
   "firstSeenAt": "2026-08-26T18:01:01.466Z",
-  "lastUpdatedAt": "2026-08-26T18:01:01.466Z"
+  "lastUpdatedAt": "2026-08-27T15:02:57.022Z"
 }
