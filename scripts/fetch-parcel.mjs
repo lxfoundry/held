@@ -12,7 +12,7 @@
 //
 // Events are scrubbed on the way in, by the store, exactly as pushed ones are.
 
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { loadEnv, ROOT } from "../src/env.mjs";
 import { createStore } from "../src/store.mjs";
 
@@ -25,7 +25,9 @@ const env = loadEnv({
   only: ["SHIP24_API_KEY", "SHIP24_API_BASE", "EVENTS_DIR", "RETAIN_LOCATIONS"],
 });
 const apiBase = (env.SHIP24_API_BASE ?? "https://api.ship24.com/public/v1").replace(/\/$/, "");
-const eventsDir = env.EVENTS_DIR ? join(ROOT, env.EVENTS_DIR) : join(ROOT, "fixtures/events");
+// resolve(), not join(), so EVENTS_DIR may be given as an absolute path — the
+// receiver reads it exactly this way, and a fetch has to land in the same store.
+const eventsDir = resolve(ROOT, env.EVENTS_DIR ?? "fixtures/events");
 const store = createStore(eventsDir, { retainPlaces: env.RETAIN_LOCATIONS === "true" });
 
 const argv = process.argv.slice(2);
