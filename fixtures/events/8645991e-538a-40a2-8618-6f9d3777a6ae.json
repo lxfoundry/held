@@ -12,12 +12,12 @@
     "observed": [
       "in_transit"
     ],
-    "eventCount": 1,
-    "lastEventAt": "2026-08-26T15:21:01.000Z"
+    "eventCount": 2,
+    "lastEventAt": "2026-08-27T10:10:48.000Z"
   },
   "shipment": {
     "shipmentId": "e1aee211-0920-43ee-a6fe-dfe8ddff8bf5",
-    "statusCode": "transit_handover",
+    "statusCode": null,
     "statusCategory": "transit",
     "statusMilestone": "in_transit",
     "originCountryCode": null,
@@ -69,8 +69,25 @@
       "statusCode": "transit_handover",
       "statusCategory": "transit",
       "statusMilestone": "in_transit"
+    },
+    {
+      "eventId": "9a5567b3-d811-466f-9bb8-a4c038c03dd1",
+      "trackingNumber": "MZ544750899GB",
+      "eventTrackingNumber": "MZ544750899GB",
+      "status": "Shipment Received in Depot",
+      "occurrenceDatetime": "2026-08-27T10:10:48+01:00",
+      "order": null,
+      "datetime": "2026-08-27T10:10:48.000Z",
+      "hasNoTime": false,
+      "utcOffset": "+01:00",
+      "location": "[location]",
+      "sourceCode": "royal-mail-tracking",
+      "courierCode": "gb-post",
+      "statusCode": null,
+      "statusCategory": "transit",
+      "statusMilestone": "in_transit"
     }
   ],
   "firstSeenAt": "2026-08-26T18:01:00.886Z",
-  "lastUpdatedAt": "2026-08-26T18:01:00.886Z"
+  "lastUpdatedAt": "2026-08-27T14:01:48.609Z"
 }
