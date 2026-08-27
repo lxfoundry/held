@@ -25,6 +25,7 @@ const {
   pathnameOf,
   extractTrackings,
   secretRequirementError,
+  startupWarnings,
 } = await import("../src/receiver.mjs");
 
 let origin;
@@ -235,4 +236,13 @@ test("the receiver refuses to start without a secret unless told to", () => {
   assert.match(secretRequirementError(undefined, "false"), /SHIP24_WEBHOOK_SECRET is not set/);
   assert.equal(secretRequirementError("", "true"), null, "the explicit opt-out was ignored");
   assert.equal(secretRequirementError("a-secret", undefined), null);
+});
+
+// The startup banner is the only place these two show up, and both describe a
+// deployment that is running wider open than the defaults.
+test("the startup banner names the insecure and the retaining configuration", () => {
+  assert.deepEqual(startupWarnings("a-secret", false), []);
+  assert.match(startupWarnings("", false)[0], /no webhook secret/);
+  assert.match(startupWarnings("a-secret", true)[0], /RETAIN_LOCATIONS/);
+  assert.equal(startupWarnings("", true).length, 2);
 });
