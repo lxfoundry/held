@@ -128,8 +128,8 @@ Startup prints the URLs to configure with the provider.
 Any host that runs Node 22 and gives the process a port. There is no build step and nothing to
 install.
 
-1. Set `SHIP24_WEBHOOK_SECRET`, `SHIP24_TRACKER_ALLOWLIST`, and `PUBLIC_BASE_URL` to the host's
-   public origin.
+1. Set `SHIP24_WEBHOOK_SECRET` to an unguessable string and `SHIP24_TRACKER_ALLOWLIST` to the
+   tracker ids you registered. Set `PUBLIC_BASE_URL` to the host's public origin.
 2. Start `npm start`; point the host's health check at `/health`.
 3. In the provider's dashboard, set the account webhook to `<PUBLIC_BASE_URL>/hooks/ship24/<secret>`.
 4. Confirm a real event lands by watching the log, or with `GET /events/<secret>`.
