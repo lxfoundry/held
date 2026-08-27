@@ -10,7 +10,14 @@
   "scripts": {
     "start": "node src/receiver.mjs",
     "test": "node --test",
+    "chain-check": "node scripts/chain-check.mjs",
     "register": "node scripts/register-parcel.mjs",
     "fetch": "node scripts/fetch-parcel.mjs"
+  },
+  "dependencies": {
+    "@bosonprotocol/core-sdk": "1.48.1-alpha.2",
+    "@bosonprotocol/ethers-sdk": "1.18.1-alpha.2",
+    "ethers": "5.7.2",
+    "lodash": "4.17.21"
   }
 }

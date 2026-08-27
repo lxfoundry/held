@@ -146,7 +146,9 @@ Five components are genuinely new work; everything else is reuse:
 Directory names for the components not yet written are settled when the build plan lands. What
 exists is fixed:
 
-- `src/` — runtime code. Zero dependencies so far, and the receiver stays that way
+- `src/` — runtime code. ⚠️ **`src/receiver.mjs` stays dependency-free** — it is the one process
+  exposed to the internet, so nothing in it may import `src/chain.mjs`, directly or transitively.
+  The chain module does have dependencies: see [`docs/chain.md`](./docs/chain.md)
 - `scripts/` — provisioning and capture, run by hand. Never a runtime path
 - `test/` — `node --test`, no framework
 - `fixtures/` — captured tracking data, scrubbed at capture time and committed
@@ -157,8 +159,10 @@ exists is fixed:
 
 **Boson Core SDK, called directly.** Every chain interaction — seller account creation, offer
 signing, the atomic create-commit-redeem meta-transaction, raising a dispute, mutual resolution —
-goes through `@bosonprotocol/core-sdk` and its relayer. The offer flow is specified in
-[`docs/specs/offer-model.md`](./docs/specs/offer-model.md).
+goes through `@bosonprotocol/core-sdk` and the protocol's relayer. The offer flow is specified in
+[`docs/specs/offer-model.md`](./docs/specs/offer-model.md); the wiring, the pinned versions, the
+relayer's credential requirements and the traps are in [`docs/chain.md`](./docs/chain.md).
+Verify the whole chain path at any time with `npm run chain-check` — it reads only, and needs no key.
 
 ⚠️ **No MCP tool surface for chain access, and that is deliberate.** MCP exists to give an *agent* a
 set of tools. Nothing here is an agent that needs to touch the chain: the buyer interface is a view,
