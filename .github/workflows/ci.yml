@@ -1,0 +1,53 @@
+name: CI
+
+# Every pull request, and every commit that lands on main.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# One run per pull-request branch: pushing again supersedes the run in flight,
+# which is safe because nothing here publishes or pushes anything. A push to
+# main groups on its own commit instead, so every landed commit keeps a result.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: lint and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # .nvmrc is the one place the Node version is written down, so a local
+      # run and this one are the same runtime.
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      # npm ci installs strictly from the lockfile and fails when package.json
+      # has drifted from it. There is nothing to compile in this repository, so
+      # this and the image build below are what "build" means here.
+      - run: npm ci
+
+      # Lint first, and with no fixer, so it gates the code that was committed
+      # rather than rewriting it underneath the tests.
+      - run: npm run lint
+
+      - run: npm test
+
+  image:
+    name: build the receiver image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # The deployed artifact is the container, not a bundle. This is what
+      # catches a Dockerfile that has stopped copying everything the receiver
+      # needs. Built only: CI pushes to no registry and deploys nothing.
+      - run: docker build --tag held-receiver:${{ github.sha }} .
