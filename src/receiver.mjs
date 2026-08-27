@@ -16,7 +16,12 @@ import { createServer } from "node:http";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadEnv } from "./env.mjs";
-import { createStore, InvalidPayloadError, CorruptSnapshotError } from "./store.mjs";
+import {
+  createStore,
+  isSafeTrackerId,
+  InvalidPayloadError,
+  CorruptSnapshotError,
+} from "./store.mjs";
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const SHUTDOWN_GRACE_MS = 5_000;
@@ -32,6 +37,8 @@ export const RECEIVER_ENV_KEYS = [
   "PUBLIC_BASE_URL",
   "RETAIN_LOCATIONS",
   "ALLOW_INSECURE_HOOK",
+  "SHIP24_TRACKER_ALLOWLIST",
+  "ALLOW_ANY_TRACKER",
 ];
 
 const env = loadEnv({ only: RECEIVER_ENV_KEYS });
@@ -53,6 +60,29 @@ const HOOK_BASE = "/hooks/ship24";
 const EVENTS_BASE = "/events";
 const hookPath = secret ? `${HOOK_BASE}/${secret}` : HOOK_BASE;
 const eventsPath = secret ? `${EVENTS_BASE}/${secret}` : EVENTS_BASE;
+
+// ⭐ The second half of the access control, and the half that survives the
+// first leaking. The path says *someone who knows the URL* is calling; the
+// allowlist says *about a parcel we actually registered*. Anything else is
+// refused before a path is built or a lock is taken.
+//
+// ⚠️ Not hypothetical: the provider itself pushed a tracker nobody registered,
+// carrying a live tracking number in state `delivered` — and `delivered` is the
+// milestone that enables paying the seller.
+//
+// Provisioning, not runtime: registering happens on a laptop against the
+// provider's API, while this runs on a host with no API key, so the list has to
+// arrive as configuration. There is deliberately no endpoint to add to it —
+// that would hand the power straight back to anyone holding the URL.
+const allowlist = parseAllowlist(env.SHIP24_TRACKER_ALLOWLIST);
+
+// String(), because the id arrives from an unauthenticated payload and may be
+// any JSON type: a number, null, an object. None of those can match an entry in
+// a set of strings, so all of them are refused.
+function isAllowedTracker(trackerId) {
+  if (!allowlist) return true;
+  return allowlist.has(String(trackerId));
+}
 
 // Place names are redacted unless the person whose addresses these are says
 // otherwise. See docs/receiver.md.
@@ -161,6 +191,19 @@ async function handleWebhook(req, res) {
   let rejected = 0;
 
   for (const tracking of trackings) {
+    // Ahead of ingest deliberately: a refused tracker must leave nothing on the
+    // volume, not a snapshot, not an event log and not a lock file.
+    if (!isAllowedTracker(tracking?.tracker?.trackerId)) {
+      // 200, not a retry code, for the same reason a malformed payload gets
+      // one: a tracker that is not on the list will never be on it by being
+      // sent again, and a provider retrying forever wedges its queue.
+      rejected += 1;
+      log(
+        `✗ refusing an event for a tracker that was never registered: ` +
+          `${JSON.stringify(tracking?.tracker?.trackerId)}`,
+      );
+      continue;
+    }
     try {
       const result = store.ingest(tracking);
       added += result.added;
@@ -268,10 +311,47 @@ export function secretRequirementError(configuredSecret, allowInsecure) {
   );
 }
 
+// Configuration arrives from a shell, a secrets store or a copied-out log, so
+// commas, spaces and newlines all separate and empty entries are dropped.
+// Returns null — meaning no filtering — rather than an empty set, so "unset"
+// and "set to nothing" cannot be confused: one is refused at startup, the other
+// would silently accept everything.
+export function parseAllowlist(value) {
+  if (typeof value !== "string") return null;
+  const ids = value.split(/[\s,]+/).filter(Boolean);
+  if (ids.length === 0) return null;
+  for (const id of ids) {
+    // An id that could never be stored cannot usefully be allowed either, and a
+    // typo would otherwise sit in the list silently matching nothing.
+    if (!isSafeTrackerId(id)) {
+      throw new Error(
+        `SHIP24_TRACKER_ALLOWLIST contains an entry that is not a usable tracker id: ${JSON.stringify(id)}`,
+      );
+    }
+  }
+  return new Set(ids);
+}
+
+// A missing allowlist means no filtering, so it is refused at startup for the
+// same reason a missing secret is: over an unattended three-day gap, a warning
+// in a log nobody reads is indistinguishable from no protection at all.
+export function allowlistRequirementError(configuredAllowlist, allowAnyTracker) {
+  if (configuredAllowlist) return null;
+  if (allowAnyTracker === "true") return null;
+  return (
+    "SHIP24_TRACKER_ALLOWLIST is not set.\n" +
+    "  The webhook path authenticates the caller but not the body, so anyone\n" +
+    "  holding the URL can inject events for a tracker you never registered.\n" +
+    "  Set it to the tracker ids you registered, comma-separated:\n" +
+    "    fly secrets set SHIP24_TRACKER_ALLOWLIST=\"<id>,<id>\"\n" +
+    "  To accept any tracker anyway (local development only), set ALLOW_ANY_TRACKER=true."
+  );
+}
+
 // The configurations that are allowed but worth saying out loud once, printed
 // under the startup banner. Pure for the same reason as the refusal above: the
 // conditions are asserted directly rather than read off a running process.
-export function startupWarnings(configuredSecret, retainingPlaces) {
+export function startupWarnings(configuredSecret, retainingPlaces, allowAnyTracker) {
   const warnings = [];
   if (!configuredSecret) {
     warnings.push(
@@ -280,6 +360,11 @@ export function startupWarnings(configuredSecret, retainingPlaces) {
   }
   if (retainingPlaces) {
     warnings.push("RETAIN_LOCATIONS=true: captured events keep their place names");
+  }
+  if (allowAnyTracker === "true") {
+    warnings.push(
+      "ALLOW_ANY_TRACKER=true: events are accepted for any tracker id, including ones never registered"
+    );
   }
   return warnings;
 }
@@ -298,7 +383,9 @@ if (isEntryPoint) {
     log(`✗ unhandled rejection, staying up: ${reason?.stack ?? reason}`);
   });
 
-  const refusal = secretRequirementError(secret, env.ALLOW_INSECURE_HOOK);
+  const refusal =
+    secretRequirementError(secret, env.ALLOW_INSECURE_HOOK) ??
+    allowlistRequirementError(allowlist, env.ALLOW_ANY_TRACKER);
   if (refusal) {
     console.error(`✗ ${refusal}`);
     process.exit(1);
@@ -315,7 +402,10 @@ if (isEntryPoint) {
     // in screen shares. The shape is printed; the value is not.
     log(`  webhook    → ${base}${HOOK_BASE}${secret ? "/<SHIP24_WEBHOOK_SECRET>" : ""}`);
     log(`  summary    → ${base}${EVENTS_BASE}${secret ? "/<SHIP24_WEBHOOK_SECRET>" : ""}`);
-    for (const warning of startupWarnings(secret, retainPlaces)) log(`  ⚠ ${warning}`);
+    log(`  allowlist  → ${allowlist ? `${allowlist.size} registered tracker(s)` : "disabled"}`);
+    for (const warning of startupWarnings(secret, retainPlaces, env.ALLOW_ANY_TRACKER)) {
+      log(`  ⚠ ${warning}`);
+    }
   });
 
   for (const signal of ["SIGINT", "SIGTERM"]) {
