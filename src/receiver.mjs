@@ -268,6 +268,22 @@ export function secretRequirementError(configuredSecret, allowInsecure) {
   );
 }
 
+// The configurations that are allowed but worth saying out loud once, printed
+// under the startup banner. Pure for the same reason as the refusal above: the
+// conditions are asserted directly rather than read off a running process.
+export function startupWarnings(configuredSecret, retainingPlaces) {
+  const warnings = [];
+  if (!configuredSecret) {
+    warnings.push(
+      "no webhook secret: the path is public and anyone can inject tracking events"
+    );
+  }
+  if (retainingPlaces) {
+    warnings.push("RETAIN_LOCATIONS=true: captured events keep their place names");
+  }
+  return warnings;
+}
+
 const isEntryPoint =
   process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
@@ -299,7 +315,7 @@ if (isEntryPoint) {
     // in screen shares. The shape is printed; the value is not.
     log(`  webhook    → ${base}${HOOK_BASE}${secret ? "/<SHIP24_WEBHOOK_SECRET>" : ""}`);
     log(`  summary    → ${base}${EVENTS_BASE}${secret ? "/<SHIP24_WEBHOOK_SECRET>" : ""}`);
-    for (const warning of startupWarnings()) log(`  ⚠ ${warning}`);
+    for (const warning of startupWarnings(secret, retainPlaces)) log(`  ⚠ ${warning}`);
   });
 
   for (const signal of ["SIGINT", "SIGTERM"]) {
