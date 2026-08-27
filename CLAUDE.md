@@ -163,6 +163,8 @@ goes through `@bosonprotocol/core-sdk` and the protocol's relayer. The offer flo
 [`docs/specs/offer-model.md`](./docs/specs/offer-model.md); the wiring, the pinned versions, the
 relayer's credential requirements and the traps are in [`docs/chain.md`](./docs/chain.md).
 Verify the whole chain path at any time with `npm run chain-check` — it reads only, and needs no key.
+Set up the accounts it checks for with `npm run provision`, which is idempotent and takes its target
+from `.env`.
 
 ⚠️ **No MCP tool surface for chain access, and that is deliberate.** MCP exists to give an *agent* a
 set of tools. Nothing here is an agent that needs to touch the chain: the buyer interface is a view,
