@@ -85,16 +85,62 @@ const trackingNumber = arg("tracking-number");
 const adopt = arg("adopt");
 const execute = process.argv.includes("--execute");
 const force = process.argv.includes("--force");
+
+// Carried into the command every plan-mode run prints at the end. A planning
+// run that needed --force to get past a guard produces an --execute line that
+// needs it too, and an operator following that line verbatim is the whole point
+// of printing it.
+const forceFlag = force ? " --force" : "";
+
+// ⚠️ A flag that was passed but carries no value must stop the run, never fall
+// through as though it had not been passed at all. `arg` above matches
+// `--name value` only: the `=`-joined form never matches, and neither does a
+// flag whose next token is another flag or an empty string.
+//
+// ⭐ For --adopt that is not a usage nuisance, it is the whole difference
+// between the two modes. `--adopt=239` parses to nothing, and nothing means
+// "do not adopt" — so the run silently becomes the one that creates an offer
+// and escrows the buyer's money, reached by an operator who is mid-recovery
+// and was handed a line ending in --execute by this very script. The tracker
+// collision guard does not save them either: the premise of adopting is an
+// exchange with no record, so there is nothing for it to collide with.
+// --tracker and --tracking-number fail safe below, but they are checked here
+// too, because a flag that behaves differently from its neighbour is its own
+// trap.
+//
+// Placeholders rather than plausible values: an exchange id in an error message
+// is one an operator might copy, and every id in this system names a live
+// exchange holding someone's money.
+const EXAMPLE_VALUE = { adopt: "<exchangeId>", tracker: "<trackerId>", "tracking-number": "<trackingNumber>" };
+const passed = (name) => process.argv.some((a) => a === `--${name}` || a.startsWith(`--${name}=`));
+const valueless = Object.keys(EXAMPLE_VALUE).filter((name) => passed(name) && !arg(name));
+if (valueless.length) {
+  for (const name of valueless) {
+    const example = EXAMPLE_VALUE[name];
+    console.error(
+      `✗ --${name} needs its value as the next argument: --${name} ${example}, not --${name}=${example}`
+    );
+  }
+  if (valueless.includes("adopt")) {
+    console.error("  refusing to continue: without it this run would not adopt anything — it would create a");
+    console.error("  new exchange and escrow the buyer's money, which cannot be undone");
+  }
+  process.exit(1);
+}
+
 if (!trackerId || !trackingNumber) {
   console.error(
     "✗ usage: node scripts/seed-exchange.mjs --tracker <trackerId> --tracking-number <trackingNumber> [--execute] [--force]"
   );
   console.error(
-    "     or: node scripts/seed-exchange.mjs --adopt <exchangeId> --tracker <trackerId> --tracking-number <trackingNumber> [--execute]"
+    "     or: node scripts/seed-exchange.mjs --adopt <exchangeId> --tracker <trackerId> --tracking-number <trackingNumber> [--execute] [--force]"
   );
   console.error("  the tracker and tracking number are required either way, and neither may be another flag");
-  console.error("  without --execute nothing is signed: the run reports what it would do and stops");
-  console.error("  --adopt protects an exchange that already exists on chain, and sends no transaction");
+  console.error("  every value is the next argument: --tracker T, never --tracker=T");
+  console.error("  without --execute nothing is submitted and no money moves: each mode reports what it would");
+  console.error("  do and stops — seeding signs the seller's offer locally on the way, and sends it nowhere");
+  console.error("  --adopt protects an exchange that already exists on chain, and sends no transaction at all");
+  console.error("  --force overrides the guards that refuse a duplicate, in either mode");
   process.exit(1);
 }
 
@@ -483,7 +529,7 @@ if (!execute) {
   console.log("the offer is valid and the seller's signature was produced locally.");
   console.log("Nothing was submitted and no money moved.");
   console.log("Escrow the buyer's money — which cannot be undone — with:");
-  console.log(`  npm run seed -- --tracker ${trackerId} --tracking-number ${trackingNumber} --execute`);
+  console.log(`  npm run seed -- --tracker ${trackerId} --tracking-number ${trackingNumber}${forceFlag} --execute`);
   process.exit(0);
 }
 
