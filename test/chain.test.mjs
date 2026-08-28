@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   CHAIN_ENV_KEYS,
   META_TX_METHOD,
+  RELAY_ONLY_ENV_KEYS,
+  loadChainEnv,
   ROLE_KEYS,
   metaTxOverrideFrom,
   resolveProtocolConfig,
@@ -217,4 +219,33 @@ test("a read that never returns anything times out naming what it waited for", a
 // on a read that succeeded immediately.
 test("a falsy but present result ends the wait", async () => {
   assert.equal(await waitForState(async () => 0, { what: "a count", intervalMs: 1, timeoutMs: 20 }), 0);
+});
+
+// ── What a relay-only component may hold ──────────────────────────────────────
+
+test("the relay-only key list carries no key that can move a party's funds", () => {
+  // ⭐ Relaying needs no local signer: the instruction is already signed and the
+  // address that signed it travels with it as data. A process that holds a key
+  // it never uses is holding a liability, so the watchdog reads a narrowed list
+  // and cannot pick one up even if .env has it.
+  assert.equal(RELAY_ONLY_ENV_KEYS.includes(ROLE_KEYS.buyer), false);
+  assert.equal(RELAY_ONLY_ENV_KEYS.includes(ROLE_KEYS.seller), false);
+
+  // Everything else survives, including the resolver key — that role decides
+  // disputes rather than holding either party's money.
+  assert.equal(RELAY_ONLY_ENV_KEYS.includes(ROLE_KEYS.disputeResolver), true);
+  assert.equal(RELAY_ONLY_ENV_KEYS.includes("META_TX_RELAYER_API_KEY"), true);
+  assert.deepEqual(
+    CHAIN_ENV_KEYS.filter((k) => !RELAY_ONLY_ENV_KEYS.includes(k)),
+    [ROLE_KEYS.buyer, ROLE_KEYS.seller]
+  );
+});
+
+test("asking for a key the narrowed list excludes is refused, not silently missing", () => {
+  // Otherwise the narrowing wins and the caller is told the key is absent from
+  // .env, which sends them looking in the wrong place entirely.
+  assert.throws(
+    () => loadChainEnv({ only: RELAY_ONLY_ENV_KEYS, required: [ROLE_KEYS.buyer] }),
+    /not among the keys this component may read/
+  );
 });

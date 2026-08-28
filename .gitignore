@@ -100,3 +100,6 @@ Thumbs.db
 # --- Local deployment state ---
 deploy-state.local.json
 *.deploy.local.*
+
+# Live state: exchange records and the pre-signed authorisations.
+state/

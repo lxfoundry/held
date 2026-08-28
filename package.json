@@ -15,7 +15,8 @@
     "provision": "node scripts/provision.mjs",
     "verify-resolver": "node scripts/verify-resolver.mjs",
     "register": "node scripts/register-parcel.mjs",
-    "fetch": "node scripts/fetch-parcel.mjs"
+    "fetch": "node scripts/fetch-parcel.mjs",
+    "watchdog": "node scripts/watchdog.mjs"
   },
   "dependencies": {
     "@bosonprotocol/core-sdk": "1.48.1-alpha.2",

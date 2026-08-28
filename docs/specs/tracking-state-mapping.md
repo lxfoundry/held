@@ -197,7 +197,7 @@ Both are named constants, not literals scattered through the adapter.
 
 Both periods they measure against are **offer parameters**, fixed at purchase and specified in
 [`offer-model.md`](./offer-model.md) §3: `disputePeriodDuration` runs from purchase,
-`resolutionPeriodDuration` (3 days) runs from the moment a dispute is raised.
+`resolutionPeriodDuration` (7 days) runs from the moment a dispute is raised.
 
 | Constant | Guards | Value |
 |---|---|---|
