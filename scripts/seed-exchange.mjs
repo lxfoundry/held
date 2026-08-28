@@ -45,7 +45,7 @@ import { Contract, constants, utils } from "ethers";
 import { abis } from "@bosonprotocol/core-sdk";
 import { connect, waitForState } from "../src/chain.mjs";
 import { loadEnv, ROOT } from "../src/env.mjs";
-import { createExchangeStore } from "../src/exchanges.mjs";
+import { createExchangeStore, CorruptRecordError } from "../src/exchanges.mjs";
 import { createAuthorisationStore } from "../src/authorisations.mjs";
 
 // ⚠️ `connect()` returns an environment narrowed to the chain keys — that
@@ -176,13 +176,28 @@ if (!execute) info("planning only — nothing will be signed or submitted");
 // unguarded, so the ordering is the point: the record exists — and the
 // watchdog can therefore see the exchange — before anything that can fail
 // again is attempted. `authorisations` is the only field that changes.
-async function protect({ exchangeId, offerId, redeemedAt, disputePeriodMs, resolutionPeriodMs }) {
+//
+// ⚠️ `put` is an unconditional overwrite, and the parcel this record names is
+// taken from the arguments rather than from the surrounding scope. On the seed
+// path the tracker was just verified against the store; on the adopt path it is
+// an operator's typing about an exchange they have lost track of, and the
+// tracker is how the watchdog finds any delivery evidence at all. Passing it in
+// is what makes that visible at the two call sites instead of implied here.
+async function protect({
+  exchangeId,
+  offerId,
+  redeemedAt,
+  disputePeriodMs,
+  resolutionPeriodMs,
+  trackerId: parcelTrackerId,
+  trackingNumber: parcelTrackingNumber,
+}) {
   exchanges.put({
     exchangeId: String(exchangeId),
     offerId,
     configId: config.configId,
-    trackerId,
-    trackingNumber,
+    trackerId: parcelTrackerId,
+    trackingNumber: parcelTrackingNumber,
     redeemedAt,
     disputePeriodMs,
     resolutionPeriodMs,
@@ -214,8 +229,9 @@ async function protect({ exchangeId, offerId, redeemedAt, disputePeriodMs, resol
     ok(`${action} authorised for exchange ${exchangeId} only`);
   }
 
-  exchanges.update(exchangeId, { authorisations: authorisations.list(exchangeId) });
-  return authorisations.list(exchangeId);
+  const captured = authorisations.list(exchangeId);
+  exchanges.update(exchangeId, { authorisations: captured });
+  return captured;
 }
 
 // ⭐ Reads what the offer actually says, and refuses a period that did not
@@ -260,6 +276,34 @@ if (adopt) {
     console.error("  an exchange id from another configuration names a different exchange, or none");
     process.exit(1);
   }
+  // ⚠️ Ours, before anything else about it matters. Exchange ids are global and
+  // dense, so 238 typed for 239 lands on a stranger's live exchange rather than
+  // on nothing — and every other guard here would pass it.
+  //
+  // ⭐ The failure it prevents is the worst one this tool has. raiseDispute and
+  // escalateDispute must come from the buyer who committed, so instruments
+  // signed with our key against someone else's exchange revert when relayed;
+  // the watchdog's read-back never confirms, so it never discards them, so it
+  // retries them every sweep — while the record written here says the exchange
+  // is protected and the exchange that actually needed protecting still has
+  // nothing. This is the one tool for an operator who has lost track of what is
+  // guarded: a false "protected" is worse than a visible refusal.
+  const [buyerExists, buyerAccount] = await accountHandler.getBuyer(onChain.exchange.buyerId);
+  const committedBy = buyerExists ? buyerAccount.wallet : null;
+  if (!committedBy || committedBy.toLowerCase() !== buyer.signer.address.toLowerCase()) {
+    console.error(`✗ exchange ${exchangeId} was not committed by this buyer, so it is not ours to protect`);
+    console.error(
+      committedBy
+        ? `  it belongs to ${committedBy}`
+        : `  buyer account ${onChain.exchange.buyerId} does not read back from the protocol`
+    );
+    console.error(`  this buyer is ${buyer.signer.address}`);
+    console.error("  authorisations signed here would revert when relayed, and the record would claim it is guarded");
+    console.error("  check the id — and check the configuration, since the same id names a different exchange on each");
+    process.exit(1);
+  }
+  ok(`exchange ${exchangeId} was committed by this buyer`);
+
   if (onChain.voucher.redeemedDate.isZero()) {
     console.error(`✗ exchange ${exchangeId} has not been redeemed, so no window is open yet`);
     console.error("  there is nothing for the watchdog to guard until it is");
@@ -271,18 +315,86 @@ if (adopt) {
     process.exit(1);
   }
 
+  // ⚠️ Both stores, because either alone answers the wrong question. An empty
+  // authorisation list is ordinary — the watchdog discards an instrument once
+  // it has been spent, and confirming receipt discards both — so held.length
+  // says nothing about whether this exchange is already known. The record is
+  // what says that, and `protect()` overwrites it with `put`: every dispute,
+  // escalation and finalisation field resets to null, and the tracker and
+  // tracking number become whatever is on this command line. The sweep merges
+  // the chain facts back, but the tracker is not a chain fact and does not come
+  // back — a live exchange re-pointed at another parcel's evidence stands the
+  // watchdog down while its own window lapses in the seller's favour.
   const held = authorisations.list(exchangeId);
-  if (held.length && !force) {
-    console.error(`✗ exchange ${exchangeId} already holds ${held.join(" and ")}`);
-    console.error("  re-signing would replace instruments that are still valid");
-    console.error("  pass --force only if the held ones are known to be lost or wrong");
+  let record = null;
+  let recordUnreadable = false;
+  try {
+    record = exchanges.get(exchangeId);
+  } catch (err) {
+    // A record that exists and cannot be parsed is still a record: overwriting
+    // it silently would throw away the only copy of what it named.
+    if (!(err instanceof CorruptRecordError)) {
+      console.error(`✗ ${err.message}`);
+      console.error(`  ${exchanges.dir} could not be read, so what exchange ${exchangeId} already has is unknown`);
+      console.error("  nothing was signed and nothing was written");
+      process.exit(1);
+    }
+    recordUnreadable = true;
+  }
+
+  const known = [
+    held.length ? `the ${held.join(" and ")} authorisation${held.length > 1 ? "s" : ""}` : null,
+    recordUnreadable
+      ? "a record that cannot be read"
+      : record
+        ? `a record naming tracker ${record.trackerId}`
+        : null,
+  ].filter(Boolean);
+  if (known.length && !force) {
+    console.error(`✗ exchange ${exchangeId} already has ${known.join(" and ")}`);
+    if (held.length) console.error("  re-signing would replace instruments that are still valid");
+    if (record || recordUnreadable) {
+      console.error("  adopting rewrites the record rather than merging into it: the dispute, escalation and");
+      console.error(`  finalisation fields reset to null and the tracker becomes ${trackerId}`);
+    }
+    console.error("  pass --force only if what is already there is known to be lost or wrong");
     process.exit(1);
   }
-  if (held.length) console.log(`⚠ --force: replacing the held ${held.join(" and ")}`);
+  if (known.length) console.log(`⚠ --force: replacing ${known.join(" and ")}`);
+
+  // ⚠️ Not a refusal, unlike the seed path's version of this — and the
+  // difference is deliberate. Two unfinalised exchanges naming one tracker make
+  // byTracker ambiguous, and byTracker is the guard that stops one parcel being
+  // bought twice, so this is worth saying loudly. But adopting sends no
+  // transaction and escrows nothing, and the collision's usual cause is an
+  // accidental second exchange for one parcel — which is exactly what adopt
+  // exists to bring under guard. Refusing would leave the buyer's money
+  // unwatched in order to protect a lookup.
+  const collision = exchanges.byTracker(trackerId);
+  if (collision && collision.exchangeId !== exchangeId && collision.finalisedAt == null) {
+    console.log(`⚠ tracker ${trackerId} is already held by unfinalised exchange ${collision.exchangeId}`);
+    console.log("⚠ two unfinalised exchanges naming one tracker make the duplicate-purchase guard ambiguous:");
+    console.log("⚠ a later seed run may find either of them, so settle whichever is not this parcel");
+  }
 
   const redeemedAt = Number(onChain.voucher.redeemedDate) * MS;
   const offerId = onChain.exchange.offerId.toString();
-  const { disputePeriodMs, resolutionPeriodMs } = await periodsFor(offerId);
+
+  // ⚠️ Strict here, and it throws rather than falling back — a zero period
+  // recorded as fact stands the watchdog down for the life of the exchange.
+  // Caught so that failure reads like every other refusal in this file rather
+  // than as an unhandled rejection: nothing has been signed or written yet, so
+  // there is nothing to clean up and the answer is simply to try again.
+  let periods;
+  try {
+    periods = await periodsFor(offerId);
+  } catch (err) {
+    console.error(`✗ ${err.message}`);
+    console.error(`  offer ${offerId} did not read back, so the periods every deadline counts from are unknown`);
+    console.error("  nothing was signed and no record was written — the RPC is a pool, so try again in a moment");
+    process.exit(1);
+  }
+  const { disputePeriodMs, resolutionPeriodMs } = periods;
 
   ok(`exchange ${exchangeId} is redeemed and unfinalised — its window is open`);
   info(`offer ${offerId} — dispute period ${disputePeriodMs / DAY_MS}d, resolution period ${resolutionPeriodMs / DAY_MS}d`);
@@ -295,11 +407,21 @@ if (adopt) {
     console.log("");
     console.log("nothing was signed. No transaction is sent either way — adopting only signs and records.");
     console.log("Protect it with:");
-    console.log(`  npm run seed -- --adopt ${exchangeId} --tracker ${trackerId} --tracking-number ${trackingNumber} --execute`);
+    console.log(
+      `  npm run seed -- --adopt ${exchangeId} --tracker ${trackerId} --tracking-number ${trackingNumber}${forceFlag} --execute`
+    );
     process.exit(0);
   }
 
-  const captured = await protect({ exchangeId, offerId, redeemedAt, disputePeriodMs, resolutionPeriodMs });
+  const captured = await protect({
+    exchangeId,
+    offerId,
+    redeemedAt,
+    disputePeriodMs,
+    resolutionPeriodMs,
+    trackerId,
+    trackingNumber,
+  });
   console.log("");
   console.log(`exchange ${exchangeId} is now protected by ${captured.join(" and ")}.`);
   console.log(`Confirm receipt with: npm run confirm -- ${exchangeId} --execute`);
@@ -622,7 +744,15 @@ try {
   // ⭐ The same capture the adopt path uses, deliberately. Recovering an
   // exchange and creating one differ only in how the exchange came to exist;
   // what protecting it means must not drift between the two.
-  const captured = await protect({ exchangeId, offerId, redeemedAt, disputePeriodMs, resolutionPeriodMs });
+  const captured = await protect({
+    exchangeId,
+    offerId,
+    redeemedAt,
+    disputePeriodMs,
+    resolutionPeriodMs,
+    trackerId,
+    trackingNumber,
+  });
 
   console.log("");
   console.log(`exchange ${exchangeId} is live and protected by ${captured.join(" and ")}.`);
