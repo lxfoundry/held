@@ -142,3 +142,22 @@ test("one unreadable file does not take the readable ones with it", () => {
   assert.deepEqual(store.all().map((r) => r.exchangeId).sort(), ["42", "43"]);
   assert.deepEqual(store.unreadable(), ["99"]);
 });
+
+test("a zero period is refused, because it silently disarms the watchdog", () => {
+  // ⚠️ The way in, observed: a read-back that lands on an RPC node one block
+  // behind. getOffer returns a truthy result with exists:false and every
+  // duration zeroed, so a caller checking truthiness records 0 as fact.
+  //
+  // Zero is finite, so the number check passes it — and downstream it is
+  // silent and expensive: dueAt collapses onto redeemedAt, every sweep reads
+  // "the window has closed", no dispute is ever raised, and the buyer pays in
+  // full when the real window lapses.
+  const store = createExchangeStore(freshDir());
+  for (const bad of [
+    { disputePeriodMs: 0 },
+    { resolutionPeriodMs: 0 },
+    { disputePeriodMs: -1 },
+  ]) {
+    assert.throws(() => store.put(record(bad)), MalformedRecordError, JSON.stringify(bad));
+  }
+});

@@ -90,9 +90,17 @@ async function readChainState(exchangeId) {
     ? Number(exchange.exchange.finalizedDate) * MS
     : null;
 
+  // ⭐ An outcome is what happened to the money, so there is not one until the
+  // protocol says the exchange is over. Until then the money is escrowed and
+  // nobody has been paid — writing "paid" onto a live exchange every sweep is
+  // both false and load-bearing, because it is what the buyer's money line
+  // reads. Null means "not yet" here, and the sweep merges only facts, so it
+  // leaves whatever the record already holds.
+  const settled = (outcome) => (finalisedAt == null ? null : outcome);
+
   if (!dispute.exists) {
-    // No dispute: the exchange either completed or its window lapsed, and both
-    // pay the seller.
+    // No dispute: once finalised, the exchange either completed or its window
+    // lapsed, and both pay the seller.
     //
     // ⚠️ Bounded: a revoked or cancelled exchange also finalises without a
     // dispute and does return the buyer's money. Nothing in this system
@@ -100,7 +108,7 @@ async function readChainState(exchangeId) {
     // path — and the on-chain state enum is not exposed by the SDK, so it is
     // reported as paid rather than guessed at from an unverified enum ordering.
     return {
-      finalisedAt, outcome: "paid",
+      finalisedAt, outcome: settled("paid"),
       disputeRaisedAt: null, disputeTimeoutAt: null, escalatedAt: null,
     };
   }
@@ -109,8 +117,9 @@ async function readChainState(exchangeId) {
     finalisedAt,
     // Whether any of the pot came back, which is the only thing the money line
     // claims. Exact for every path this system takes: the watchdog raises, and
-    // a raised dispute settles through a percentage.
-    outcome: dispute.dispute.buyerPercent.isZero() ? "paid" : "returned",
+    // a raised dispute settles through a percentage. An open dispute has
+    // settled nothing yet, so it too reports no outcome until it finalises.
+    outcome: settled(dispute.dispute.buyerPercent.isZero() ? "paid" : "returned"),
     disputeRaisedAt: disputed.isZero() ? null : Number(disputed) * MS,
     disputeTimeoutAt: timeout.isZero() ? null : Number(timeout) * MS,
     escalatedAt: escalated.isZero() ? null : Number(escalated) * MS,

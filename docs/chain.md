@@ -25,6 +25,112 @@ another configuration it provisions that one from scratch. It is the first thing
 relayer end to end, because the seller's account is created **gaslessly**, from a wallet holding no
 native currency at all.
 
+## Creating and completing an exchange
+
+Two commands move money, and they are the only two here that do:
+
+```
+npm run seed -- --tracker <trackerId> --tracking-number <trackingNumber>
+npm run confirm -- <exchangeId>
+```
+
+⭐ **Both plan and stop unless `--execute` is passed.** Run as above, each performs every read and
+every guard, prints exactly what it would do — for `seed` the offer terms, the periods and the price
+at the token's own decimals; for `confirm` the exchange, its state and what completing it pays — and
+then stops. **Nothing is submitted and no money moves, so there is nothing to undo.** `--execute` is
+what makes either one real, and it means the same thing in both:
+
+```
+npm run seed -- --tracker <trackerId> --tracking-number <trackingNumber> --execute
+npm run confirm -- <exchangeId> --execute
+```
+
+⚠️ **A planning run of `seed` does sign the seller's offer** — locally, off-chain, sent nowhere.
+Building and signing the offer is where a bad price, a bad period or a missing field is actually
+caught, so a plan that skipped it would not be planning the run that happens. The claim `--execute`
+carries is about **submitting**, not about signing: without it nothing reaches the relayer and no
+money moves. (`--adopt`, below, signs nothing without `--execute`.)
+
+⚠️ **Every value is the next argument, never joined with `=`.** `--tracker=T` and `--adopt=239` are
+refused rather than half-understood — the parser reads `--flag value`, so an `=`-joined value would
+otherwise read as though the flag had never been passed at all.
+
+⚠️ **`seed --execute` escrows the buyer's money.** One relayed meta-transaction creates the offer,
+commits to it and redeems it: the price leaves the buyer's wallet at the commit, and there is no
+buyer-side cancel after the redeem — the money leaves escrow when the buyer confirms receipt, when a
+raised dispute is resolved, or when the window lapses, which pays the seller. The same run then
+captures the buyer's two pre-signed authorisations, `raiseDispute` and `escalateDispute`, and writes
+the record the watchdog sweeps. They cannot be signed any earlier, because the exchange id they are
+scoped to does not exist until the purchase is mined, and an exchange without them is unprotected —
+which the script says out loud.
+
+It also refuses to seed one parcel twice: a tracker already named by an unfinalised exchange is
+rejected rather than quietly escrowing a second lot of the buyer's money for one delivery. `--force`
+overrides that, deliberately and loudly.
+
+### Adopting an exchange that is already live
+
+```
+npm run seed -- --adopt <exchangeId> --tracker <trackerId> --tracking-number <trackingNumber>
+npm run seed -- --adopt <exchangeId> --tracker <trackerId> --tracking-number <trackingNumber> --execute
+```
+
+⭐ **The recovery half of `seed`, and it sends no transaction of any kind.** The window `seed` keeps
+short is not zero: a run can die after the relay has landed, leaving an exchange live on chain with
+no local record and no authorisations — holding the buyer's money with nothing standing guard, and
+invisible to the watchdog, which sweeps records. `--adopt` reads that exchange back from the
+protocol, signs the two authorisations against it and writes the record, so the watchdog can see an
+exchange it previously could not. It never creates an offer, never commits and never escrows
+anything; `--execute` still gates the signing and the write.
+
+The tracker and tracking number are **required**, exactly as when seeding, and they are the operator
+supplying them from memory rather than the script reading them back: the tracker id is the only
+handle the watchdog has for resolving delivery evidence, and nothing on chain knows it.
+
+It refuses, before signing anything, an exchange that does not exist on this configuration, one
+**committed by a different buyer** (ids are global and dense, so a mistyped one lands on a
+stranger's live exchange, where our authorisations would revert and the record would claim it is
+guarded), one that has not been redeemed, and one that is already finalised. It also refuses one
+that already has held authorisations, or a record naming a **different** tracker, naming which of the
+two it found — adopting rewrites the record rather than merging into it, so the dispute, escalation
+and finalisation fields reset and the tracker becomes the one on the command line. Those fields come
+back on the watchdog's next sweep, because the protocol is asked for them; **the tracker does not**,
+nothing on chain knows it, and the record is its only copy — which is what that refusal is really
+protecting. **`--force` overrides it**, and is the flag to reach for when what is already there is
+known to be lost or wrong. A record that exists and cannot be parsed refuses the same way, and names
+the file to go and read.
+
+⭐ **One state is not an overwrite, and is not refused: a record with an empty authorisation list, no
+instruments held, and the same tracker.** That is exactly what a `seed` run that died between writing
+the record and signing leaves behind — the record is written first so that failure is visible rather
+than invisible — and finishing it is what `--adopt` is for. So the recovery command `seed` prints is
+one `--adopt` accepts, and it carries `--force` itself in the case that needs it: a run that failed
+*between* the two signatures leaves one instrument on disk, which is a real overwrite.
+
+A tracker already held by another unfinalised exchange is a **warning** here rather than a refusal,
+unlike on the seed path: adopting escrows nothing, and the usual cause is a second exchange for one
+parcel that now needs guarding. While both are open the duplicate-purchase lookup can find either,
+and nothing here disambiguates them for you.
+
+⚠️ **No command undoes an escrow.** The only script that finalises an exchange is `confirm`, and it
+finalises by *paying the seller* — so it belongs to the exchange whose parcel actually arrived, and
+to that one only. Getting the buyer's money back on the other runs through a **dispute**: the
+watchdog raises one on that exchange's behalf as its window nears expiry, and nothing in this
+repository resolves a dispute, so it ends with the seller agreeing a split or the dispute resolver
+deciding. Which exchange takes which route is a decision, not a command. Leaving both alone is not
+the neutral option — a lapsed window pays the seller, and here that is twice for one parcel.
+
+⚠️ **`confirm --execute` pays the seller.** It completes the exchange, the escrow is released
+immediately, and it cannot be reversed. It is the buyer's decision and nothing else's: no tracking
+event may reach it, because tracking proves arrival and not condition. It refuses on an exchange that
+does not exist, is already finalised, has not been redeemed, or is disputed — completing a disputed
+exchange reverts, and that is the ordinary case where the watchdog raised a dispute and the parcel
+then turned up.
+
+`npm run provision` and `npm run register` keep the opposite default deliberately: they do the work,
+and offer `--dry-run` for a report. An allowance can be re-granted and a tracker can be
+re-registered, so neither needs the stronger guard.
+
 ## Pinned versions
 
 | Package | Version | Why this one |
