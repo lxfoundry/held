@@ -410,12 +410,19 @@ try {
   } catch (err) {
     info(`could not read offer ${offerId} back (${err.message}) — recording the requested periods`);
   }
-  const disputePeriodMs = onChainOffer
-    ? Number(onChainOffer.offerDurations.disputePeriod) * MS
-    : requestedDisputePeriodMs;
-  const resolutionPeriodMs = onChainOffer
-    ? Number(onChainOffer.offerDurations.resolutionPeriod) * MS
-    : requestedResolutionPeriodMs;
+  // ⚠️ `exists`, not truthiness. getOffer does not revert on an offer the node
+  // cannot see yet — it returns a perfectly truthy result with `exists: false`
+  // and every duration zeroed. The RPC is a pool, so the read that follows a
+  // write can land on a node one block behind, which is the same lag the
+  // getExchange call above uses waitForState to survive.
+  //
+  // A zero period here would be recorded as fact and would stand the watchdog
+  // down for the life of the exchange: dueAt becomes redeemedAt, every sweep
+  // reads "the window has closed", no dispute is ever raised, and the buyer
+  // pays in full when the real window lapses.
+  const readBack = onChainOffer?.exists ? onChainOffer.offerDurations : null;
+  const disputePeriodMs = readBack ? Number(readBack.disputePeriod) * MS : requestedDisputePeriodMs;
+  const resolutionPeriodMs = readBack ? Number(readBack.resolutionPeriod) * MS : requestedResolutionPeriodMs;
 
   ok(`exchange ${exchangeId} is redeemed — the window is open and the seller must fulfil`);
   info(`offer ${offerId} — dispute period ${disputePeriodMs / DAY_MS}d, resolution period ${resolutionPeriodMs / DAY_MS}d`);

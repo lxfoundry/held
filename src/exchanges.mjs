@@ -61,6 +61,18 @@ function assertNoSecrets(value, path = "") {
   }
 }
 
+// A period is a duration the protocol enforces a 7-day floor on, so zero is not
+// a short window — it is a value that failed to arrive.
+//
+// ⚠️ Rejected here rather than trusted, because a zero period is silent
+// downstream and expensive: dueAt collapses onto redeemedAt, every sweep reads
+// "the window has closed", no dispute is ever raised, and the buyer pays in
+// full when the real window lapses. It is finite, so the number check above
+// passes it. The observed way in is a read-back landing on an RPC node one
+// block behind: getOffer returns a truthy result with `exists: false` and every
+// duration zeroed.
+const PERIOD_FIELDS = ["disputePeriodMs", "resolutionPeriodMs"];
+
 function assertShape(record) {
   for (const field of MS_FIELDS) {
     const value = record[field];
@@ -69,6 +81,12 @@ function assertShape(record) {
       throw new MalformedRecordError(
         record.exchangeId,
         `${field} is ${JSON.stringify(value)}, not a number of milliseconds`
+      );
+    }
+    if (PERIOD_FIELDS.includes(field) && value <= 0) {
+      throw new MalformedRecordError(
+        record.exchangeId,
+        `${field} is ${value}, and a period the protocol floors at 7 days cannot be zero or negative`
       );
     }
   }
