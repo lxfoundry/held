@@ -551,11 +551,6 @@ try {
   // The offer the protocol actually created, rather than one predicted before
   // it existed: the id arrives free with the exchange, and the periods the
   // offer was created with are what every deadline in this system counts from.
-  //
-  // ⚠️ Tolerated rather than required. This read sits in the window between a
-  // live exchange and a written record — the window everything below is
-  // arranged to keep short — so a read that fails here must not cost the
-  // record. It falls back to what was asked for and says so.
   const offerId = onChain.exchange.offerId.toString();
 
   // ⚠️ Tolerated rather than required, unlike the adopt path. This read sits in
