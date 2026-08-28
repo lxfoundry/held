@@ -25,9 +25,18 @@
 // resolved, or when the window lapses — and a lapsed window pays the seller.
 //
 // ⭐ Which is why it plans and stops by default. Without --execute it performs
-// every read and every guard, prints the offer it would create, and signs
-// nothing. --execute is the only thing that makes it real, here and in
-// scripts/confirm-receipt.mjs, where it means the same thing.
+// every read and every guard, prints the offer it would create, and submits
+// nothing: no transaction, no money moved, nothing that can be undone.
+//
+// ⚠️ Not the same claim as "signs nothing", and the difference is written down
+// because it used to be stated wrongly here. A planning run of the seed path
+// does produce the seller's offer signature, locally — it is off-chain, costs
+// nothing, commits to nothing and is sent nowhere, and building the offer is
+// where a bad price, a bad period or a missing field is actually caught, so a
+// plan that skipped it would not be planning the run that happens. --adopt
+// signs nothing without --execute. --execute is the only thing that makes
+// either real, here and in scripts/confirm-receipt.mjs, where it means the same
+// thing.
 //
 // The seller signs the offer off-chain and never sends a transaction. The buyer
 // submits one relayed meta-transaction that creates the offer, commits to it and
@@ -782,6 +791,16 @@ try {
   } else {
     console.error(`  tx ${explorer(tx.hash)}`);
     console.error("  the transaction was submitted but its outcome is unconfirmed — check it before re-running");
+    // There is a hash, so there is a way through: the explorer shows whether it
+    // committed and under which id, and adopting closes the gap without sending
+    // anything. Saying so here is the difference between a recoverable failure
+    // and one an operator has to work out under time pressure.
+    console.error("  if it did commit, take the exchange id from that transaction — the exchange is live and");
+    console.error("  unprotected until it is adopted:");
+    console.error(
+      `    npm run seed -- --adopt <exchangeId> --tracker ${trackerId} --tracking-number ${trackingNumber} --execute`
+    );
+    console.error("  do NOT simply re-run: that escrows the buyer's money a second time");
   }
   process.exitCode = 1;
 }

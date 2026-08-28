@@ -37,13 +37,23 @@ npm run confirm -- <exchangeId>
 ⭐ **Both plan and stop unless `--execute` is passed.** Run as above, each performs every read and
 every guard, prints exactly what it would do — for `seed` the offer terms, the periods and the price
 at the token's own decimals; for `confirm` the exchange, its state and what completing it pays — and
-then stops before anything is signed. Nothing is submitted, so nothing can be undone. `--execute` is
+then stops. **Nothing is submitted and no money moves, so nothing can be undone.** `--execute` is
 what makes either one real, and it means the same thing in both:
 
 ```
 npm run seed -- --tracker <trackerId> --tracking-number <trackingNumber> --execute
 npm run confirm -- <exchangeId> --execute
 ```
+
+⚠️ **A planning run of `seed` does sign the seller's offer** — locally, off-chain, sent nowhere.
+Building and signing the offer is where a bad price, a bad period or a missing field is actually
+caught, so a plan that skipped it would not be planning the run that happens. The claim `--execute`
+carries is about **submitting**, not about signing: without it nothing reaches the relayer and no
+money moves. (`--adopt`, below, signs nothing without `--execute`.)
+
+⚠️ **Every value is the next argument, never joined with `=`.** `--tracker=T` and `--adopt=239` are
+refused rather than half-understood — the parser reads `--flag value`, so an `=`-joined value would
+otherwise read as though the flag had never been passed at all.
 
 ⚠️ **`seed --execute` escrows the buyer's money.** One relayed meta-transaction creates the offer,
 commits to it and redeems it: the price leaves the buyer's wallet at the commit, and there is no
@@ -57,6 +67,40 @@ which the script says out loud.
 It also refuses to seed one parcel twice: a tracker already named by an unfinalised exchange is
 rejected rather than quietly escrowing a second lot of the buyer's money for one delivery. `--force`
 overrides that, deliberately and loudly.
+
+### Adopting an exchange that is already live
+
+```
+npm run seed -- --adopt <exchangeId> --tracker <trackerId> --tracking-number <trackingNumber>
+npm run seed -- --adopt <exchangeId> --tracker <trackerId> --tracking-number <trackingNumber> --execute
+```
+
+⭐ **The recovery half of `seed`, and it sends no transaction of any kind.** The window `seed` keeps
+short is not zero: a run can die after the relay has landed, leaving an exchange live on chain with
+no local record and no authorisations — holding the buyer's money with nothing standing guard, and
+invisible to the watchdog, which sweeps records. `--adopt` reads that exchange back from the
+protocol, signs the two authorisations against it and writes the record, so the watchdog can see an
+exchange it previously could not. It never creates an offer, never commits and never escrows
+anything; `--execute` still gates the signing and the write, and the failure messages `seed` prints
+hand you the exact command.
+
+The tracker and tracking number are **required**, exactly as when seeding, and they are the operator
+supplying them from memory rather than the script reading them back: the tracker id is the only
+handle the watchdog has for resolving delivery evidence, and nothing on chain knows it.
+
+It refuses, before signing anything, an exchange that does not exist on this configuration, one
+**committed by a different buyer** (ids are global and dense, so a mistyped one lands on a
+stranger's live exchange, where our authorisations would revert and the record would claim it is
+guarded), one that has not been redeemed, and one that is already finalised. It also refuses one
+that already has a record or held authorisations, naming which of the two it found — adopting
+rewrites the record rather than merging into it, so the dispute, escalation and finalisation fields
+reset and the tracker becomes the one on the command line. **`--force` overrides that refusal**, and
+is the flag to reach for when what is already there is known to be lost or wrong.
+
+A tracker already held by another unfinalised exchange is a **warning** here rather than a refusal,
+unlike on the seed path: adopting escrows nothing, and the usual cause is a second exchange for one
+parcel that now needs guarding. Settle whichever of the two is not this parcel — while both are
+open, the duplicate-purchase lookup can find either.
 
 ⚠️ **`confirm --execute` pays the seller.** It completes the exchange, the escrow is released
 immediately, and it cannot be reversed. It is the buyer's decision and nothing else's: no tracking
