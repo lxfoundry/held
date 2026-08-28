@@ -1,7 +1,9 @@
 // test/adapter.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ACTIONS, decide, leadMs, assertLeadSane, RAISE_LEAD, ESCALATE_LEAD } from "../src/adapter.mjs";
+import {
+  ACTIONS, decide, leadMs, assertLeadSane, RAISE_LEAD, ESCALATE_LEAD, MalformedRecordError,
+} from "../src/adapter.mjs";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -211,4 +213,69 @@ test("a lead over half its period is allowed but warns", () => {
   assert.equal(warnings.length, 1);
   assert.match(warnings[0], /demonstration/i);
   assert.equal(assertLeadSane(PERIOD, 48 * HOUR, "DISPUTE_RAISE_LEAD").length, 0);
+});
+
+// ── The threshold itself ──────────────────────────────────────────────────────
+// The existing cases sit 47 hours past the trip point, so `>` instead of `>=`,
+// or a lead applied to the wrong period, would pass every one of them. These
+// pin the boundary to the millisecond.
+
+test("the raise threshold trips exactly at dueAt minus the lead", () => {
+  const at = (now) => decide({ tracking: tracking(), record: record(), now, leads }).action;
+  const trip = PERIOD - leads.raiseMs;
+  assert.equal(at(trip - 1), ACTIONS.NONE);
+  assert.equal(at(trip), ACTIONS.RAISE);
+  assert.equal(at(trip + 1), ACTIONS.RAISE);
+});
+
+test("the escalate threshold trips exactly at dueAt minus the lead", () => {
+  const disputed = record({ disputeRaisedAt: 0, disputeTimeoutAt: null });
+  const at = (now) => decide({ tracking: tracking(), record: disputed, now, leads }).action;
+  const trip = PERIOD - leads.escalateMs;
+  assert.equal(at(trip - 1), ACTIONS.NONE);
+  assert.equal(at(trip), ACTIONS.ESCALATE);
+  assert.equal(at(trip + 1), ACTIONS.ESCALATE);
+});
+
+test("a window already closed stands down instead of relaying forever", () => {
+  // The protocol refuses the call once the period has elapsed, so continuing to
+  // report it as required has the sweep retrying a doomed relay every minute
+  // while an operator reads "raiseDispute" and assumes it is in hand.
+  const closed = decide({ tracking: tracking(), record: record(), now: PERIOD + 10 * DAY, leads });
+  assert.equal(closed.action, ACTIONS.NONE);
+  assert.match(closed.reason, /closed/);
+
+  const disputed = record({ disputeRaisedAt: 0, disputeTimeoutAt: null });
+  const late = decide({ tracking: tracking(), record: disputed, now: PERIOD + 10 * DAY, leads });
+  assert.equal(late.action, ACTIONS.NONE);
+  assert.match(late.reason, /closed/);
+});
+
+// ── Malformed records ─────────────────────────────────────────────────────────
+
+test("a deadline that cannot be computed is raised, never reported as healthy", () => {
+  // ⚠️ Every one of these used to return "the window is healthy" and stand the
+  // watchdog down for good, because NaN compares false against everything. The
+  // failure was invisible and in the direction that pays the other party.
+  const cases = [
+    ["redeemedAt missing", record({ redeemedAt: undefined })],
+    ["disputePeriodMs missing", record({ disputePeriodMs: undefined })],
+    ["redeemedAt as an ISO string", record({ redeemedAt: "2026-08-20T00:00:00Z" })],
+    ["resolutionPeriodMs missing while disputed", record({ disputeRaisedAt: 0, disputeTimeoutAt: null, resolutionPeriodMs: null })],
+  ];
+  for (const [what, bad] of cases) {
+    assert.throws(
+      () => decide({ tracking: tracking(), record: bad, now: NEARING, leads }),
+      MalformedRecordError,
+      what
+    );
+  }
+});
+
+test("a lead that is not a number is raised rather than silently standing down", () => {
+  // DISPUTE_RAISE_LEAD_MS=48h reaches here as NaN.
+  assert.throws(
+    () => decide({ tracking: tracking(), record: record(), now: NEARING, leads: { raiseMs: NaN, escalateMs: NaN } }),
+    MalformedRecordError
+  );
 });

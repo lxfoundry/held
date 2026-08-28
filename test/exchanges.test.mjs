@@ -1,10 +1,11 @@
 // test/exchanges.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createExchangeStore, SecretLeakError } from "../src/exchanges.mjs";
+import { MalformedRecordError } from "../src/adapter.mjs";
 
 const freshDir = () => mkdtempSync(join(tmpdir(), "held-exchanges-"));
 
@@ -94,4 +95,50 @@ test("authorisations are recorded by name only", () => {
   const raw = readFileSync(join(dir, "42.json"), "utf8");
   assert.match(raw, /raiseDispute/);
   assert.equal(/0x[0-9a-f]{64}/i.test(raw), false);
+});
+
+// ── The record contract ───────────────────────────────────────────────────────
+
+test("a timestamp that is not a number is refused at the point of writing", () => {
+  // ⚠️ Caught here because past this point it reaches arithmetic, and a wrong
+  // type there produces NaN, which stands the watchdog down without a word.
+  // Every other timestamp in this codebase is written as an ISO string, so this
+  // is the mistake the next producer will actually make.
+  const store = createExchangeStore(freshDir());
+  for (const bad of [
+    { redeemedAt: "2026-08-20T00:00:00Z" },
+    { disputePeriodMs: "7d" },
+    { resolutionPeriodMs: "604800000" },
+    { finalisedAt: Number.NaN },
+  ]) {
+    assert.throws(() => store.put(record(bad)), MalformedRecordError, JSON.stringify(bad));
+  }
+});
+
+test("null stays legal, because absent is a real state", () => {
+  const store = createExchangeStore(freshDir());
+  store.put(record({ disputeRaisedAt: null, finalisedAt: null }));
+  assert.equal(store.get("42").disputeRaisedAt, null);
+});
+
+test("a signature is refused by its shape, not only by its field name", () => {
+  // A field name nobody predicted is exactly how one gets in.
+  const store = createExchangeStore(freshDir());
+  assert.throws(
+    () => store.put(record({ receipt: `0x${"a".repeat(130)}` })),
+    SecretLeakError
+  );
+  // A transaction hash is 32 bytes and is a reasonable thing to record, so the
+  // rule deliberately stops short of forbidding it.
+  store.put(record({ relayTxHash: `0x${"a".repeat(64)}` }));
+});
+
+test("one unreadable file does not take the readable ones with it", () => {
+  const store = createExchangeStore(freshDir());
+  store.put(record({ exchangeId: "42" }));
+  store.put(record({ exchangeId: "43" }));
+  writeFileSync(join(store.dir, "99.json"), "{ truncated");
+
+  assert.deepEqual(store.all().map((r) => r.exchangeId).sort(), ["42", "43"]);
+  assert.deepEqual(store.unreadable(), ["99"]);
 });

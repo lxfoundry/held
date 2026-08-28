@@ -47,6 +47,34 @@ export function assertLeadSane(periodMs, ms, name) {
   return [];
 }
 
+export class MalformedRecordError extends Error {
+  constructor(exchangeId, detail) {
+    super(`exchange ${exchangeId}: ${detail}`);
+    this.name = "MalformedRecordError";
+  }
+}
+
+// ⚠️ Every way of getting a deadline wrong fails in the same direction, and it
+// is the direction that pays the other party. NaN compares false against
+// everything, so a missing period — or a timestamp that arrived as an ISO
+// string, which is how every other timestamp in this codebase is written —
+// makes `now >= dueAt - lead` false forever. The watchdog then stands down and
+// reports a healthy window, which is indistinguishable from the parcel being
+// fine right up until the money moves.
+//
+// So a deadline that cannot be computed is raised, never absorbed. The sweep
+// catches per exchange, so one bad record becomes a visible `✗` instead of a
+// silent no-op.
+function ms(exchangeId, what, value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new MalformedRecordError(
+      exchangeId,
+      `${what} is ${JSON.stringify(value) ?? String(value)}, not a number of milliseconds`
+    );
+  }
+  return value;
+}
+
 export function decide({ tracking, record, now, leads }) {
   // ⚠️ Compared against null, not truthiness. These are timestamps, and a
   // timestamp of 0 is a real one — treating it as absent would silently ignore
@@ -61,14 +89,28 @@ export function decide({ tracking, record, now, leads }) {
   // One level down, the same asymmetry: a resolution period that lapses pays
   // the seller. Prefer the protocol's own timeout to anything computed here.
   if (record.disputeRaisedAt != null) {
-    const dueAt = record.disputeTimeoutAt ?? record.disputeRaisedAt + record.resolutionPeriodMs;
-    if (now >= dueAt - leads.escalateMs) {
+    const id = record.exchangeId;
+    const dueAt = record.disputeTimeoutAt != null
+      ? ms(id, "disputeTimeoutAt", record.disputeTimeoutAt)
+      : ms(id, "disputeRaisedAt", record.disputeRaisedAt) +
+        ms(id, "resolutionPeriodMs", record.resolutionPeriodMs);
+    const lead = ms(id, "the escalation lead", leads.escalateMs);
+
+    // Past the deadline the protocol refuses the call, so continuing to report
+    // it as required would have the sweep retrying a doomed relay every minute
+    // while an operator reads "escalateDispute" and assumes it is in hand.
+    if (now >= dueAt) {
+      return { action: ACTIONS.NONE, reason: "the resolution window has closed", dueAt };
+    }
+    if (now >= dueAt - lead) {
       return { action: ACTIONS.ESCALATE, reason: "the resolution window is nearing expiry", dueAt };
     }
     return { action: ACTIONS.NONE, reason: "a dispute is open and its window is healthy", dueAt };
   }
 
-  const dueAt = record.redeemedAt + record.disputePeriodMs;
+  const dueAt =
+    ms(record.exchangeId, "redeemedAt", record.redeemedAt) +
+    ms(record.exchangeId, "disputePeriodMs", record.disputePeriodMs);
 
   // Tracking proves arrival, not condition — it cannot see a crushed box. So a
   // delivery scan only enables confirmation, and confirmation is the buyer's.
@@ -87,7 +129,11 @@ export function decide({ tracking, record, now, leads }) {
   // No tracking at all falls through to the same branch as any other
   // non-delivery, and that is the point: a parcel that stops producing events
   // entirely is exactly what this exists for.
-  if (now >= dueAt - leads.raiseMs) {
+  const lead = ms(record.exchangeId, "the dispute-raise lead", leads.raiseMs);
+  if (now >= dueAt) {
+    return { action: ACTIONS.NONE, reason: "the window has closed", dueAt };
+  }
+  if (now >= dueAt - lead) {
     return { action: ACTIONS.RAISE, reason: "the window is nearing expiry and nothing was delivered", dueAt };
   }
   return { action: ACTIONS.NONE, reason: "the window is healthy", dueAt };
