@@ -49,11 +49,32 @@ export const ROLE_KEYS = {
   disputeResolver: "DISPUTE_RESOLVER_PRIVATE_KEY",
 };
 
+// ⭐ What a component that only *relays* is entitled to read: everything except
+// the two wallets that can move the parties' funds.
+//
+// Relaying a pre-signed meta-transaction needs no local signer at all. The
+// instruction is already signed — function name, signature, r/s/v and nonce all
+// come out of the stored authorisation — and the relayer submits it, so the only
+// address involved arrives as data. The reads alongside it go through the
+// provider. A process that holds a key it never uses is holding a liability, and
+// this list is what stops it happening by accident.
+export const RELAY_ONLY_ENV_KEYS = CHAIN_ENV_KEYS.filter(
+  (key) => key !== ROLE_KEYS.buyer && key !== ROLE_KEYS.seller
+);
+
 const REQUIRED_ALWAYS = ["CHAIN_ID", "BOSON_ENV", "BOSON_CONFIG_ID"];
 
-export function loadChainEnv({ required = [] } = {}) {
+export function loadChainEnv({ required = [], only = CHAIN_ENV_KEYS } = {}) {
+  const missing = required.filter((key) => !only.includes(key));
+  if (missing.length) {
+    // Otherwise the narrowing silently wins and the caller gets "missing
+    // required environment" for a key that is sitting in .env.
+    throw new Error(
+      `${missing.join(", ")} is required but not among the keys this component may read`
+    );
+  }
   return loadEnv({
-    only: CHAIN_ENV_KEYS,
+    only,
     required: [...new Set([...REQUIRED_ALWAYS, ...required])],
   });
 }
@@ -220,8 +241,16 @@ export function createCoreSDK({ config, provider, signer, env = {} }) {
 // One call for the common case. `role` is optional: reads need no key at all,
 // which is what keeps the verification script runnable before any wallet has
 // been provisioned.
-export function connect({ role = null, required = [] } = {}) {
-  const env = loadChainEnv({ required: role ? [...required, ROLE_KEYS[role]] : required });
+//
+// `envKeys` narrows what is read at all — pass RELAY_ONLY_ENV_KEYS from a
+// component that must not be able to sign as the buyer or the seller even by
+// mistake. Narrowing and a role that needs an excluded key contradict each
+// other, and loadChainEnv refuses rather than picking one.
+export function connect({ role = null, required = [], envKeys = CHAIN_ENV_KEYS } = {}) {
+  const env = loadChainEnv({
+    only: envKeys,
+    required: role ? [...required, ROLE_KEYS[role]] : required,
+  });
   const config = resolveProtocolConfig(env);
   const provider = createProvider(config, env);
   const signer = role ? signerFor(role, env, provider) : undefined;
