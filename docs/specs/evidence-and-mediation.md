@@ -243,14 +243,17 @@ possibly know.
 One function. It returns a **discriminated union**, not two modes:
 
 ```js
-// A gap that matters
+// Gaps that matter — one round, however many requests
 {
   status: "needs_evidence",
-  request: {
-    what:          "a photograph of the outer shipping carton",
-    whyItMatters:  "…which cause it supports, and how it changes the answer",
-    whoCanProvide: "buyer",
-  },
+  requests: [
+    {
+      what:          "a photograph of the outer shipping carton",
+      whyItMatters:  "…which cause it supports, and how it changes the answer",
+      whoCanProvide: "buyer",
+    },
+    …
+  ],
   findings: [ … ],
 }
 
@@ -261,17 +264,52 @@ One function. It returns a **discriminated union**, not two modes:
   reasoning: "…",
   findings: [ { statement: "…", evidenceIds: ["pho-2", "lst-1"] }, … ],
 }
+
+// Contested beyond what evidence can settle
+{
+  status: "cannot_settle",
+  reasoning: "…",
+  findings: [ … ],
+}
 ```
+
+**`requests` is a list, and its contents are case-specific.** Nothing about a request is drawn from a
+fixed set: the model writes what it needs and why, and may address either party. *Re-take the carton
+photograph square to the damage, it is out of focus* and *the description says bought new a month ago
+— the purchase receipt would settle it* are the same mechanism as the carton question, not
+extensions of it.
+
+It is a list rather than a single request because a case handler who asks for one thing, receives it,
+then asks for a second has cost the party two round trips to learn what one would have. If the model
+can see three gaps, it asks for three.
+
+**`cannot_settle` is the honest third outcome.** Some cases are contested in a way more evidence will
+not fix. Without this branch the model's only ways to express that are to keep asking or to produce a
+number it does not believe, and the second is the exact failure the bounds in [§4](#4-the-bounds)
+exist to prevent — a confident figure with nothing under it. A case that cannot settle goes to rung
+four, which is what rung four is for.
+
+> ⚠️ **`cannot_settle` means *more evidence would not settle this*, not *the parties disagree*.**
+> Disagreement is the normal condition of a dispute and contradictory evidence is ordinary — a buyer
+> and a seller describing the same parcel differently is the case, not a failure of the case. If
+> `cannot_settle` comes to mean disagreement it will be returned for everything, and the rung that is
+> supposed to be rare becomes the default.
 
 `findings` is present in **both** branches and is bound by [§4.2](#42-grounding) in both. A request
 for evidence rests on the model having read something that told it what was missing, and that
 reasoning is as citable as a proposal's — a `needs_evidence` result with no findings is a question
 asked from nowhere.
 
-**The two rounds are the same function over different bundles.** Round one runs against a bundle
-missing an item that would change the answer, and asks for it. The item is added, the bundle hashes
-differently, and round two runs and proposes. A case with no gap proposes on the first call; there is
-no special case and no separate "ask" path.
+**Rounds are the same function over successively larger bundles.** A round runs against a bundle,
+asks for what is missing, the evidence is added, the bundle hashes differently, and the next round
+runs. A case with no gap proposes on the first call; there is no special case and no separate "ask"
+path.
+
+⭐ **Rounds are not a conversation, which is why there can be several.** Each round is an independent
+call over a larger bundle, with its own hash and its own recording. There is no history to resend, no
+conversation state to carry and no context to manage, so the record and replay paths in
+[§7](#7-replay) handle any number of rounds unchanged. What multi-round costs is a loop, a cap and a
+flag — see [§5.2](#52-rounds-and-how-a-case-is-guaranteed-to-end).
 
 ⭐ **The diagnostic question is load-bearing or it should not be asked.** A request is only useful if
 the answer changes the proposal — if the same number comes back either way, the question was
@@ -287,12 +325,51 @@ The parties are shown what the model chose to present as its account of the deci
 across runs, quotable, and addressed to them. A raw reasoning trace is none of those things — it is
 addressed to nobody, and presenting it as an explanation misrepresents what it is.
 
+### 5.2 Rounds, and how a case is guaranteed to end
+
+A component that asks for evidence can wait forever, and a component that may ask again can ask
+forever. Three bounds prevent it, and **the mediator owns only the weakest of them**.
+
+**1. A round cap.** `MEDIATOR_MAX_ROUNDS`, default 3. The final round is *told* it is final and must
+return `proposal` or `cannot_settle`; `needs_evidence` is not a valid answer to a final round. This
+bounds the number of calls, and nothing else.
+
+**2. The deadline is the protocol's, not the mediator's.** A raised dispute has a resolution period,
+and when it lapses **the seller is paid** — the same fact the watchdog exists for. The watchdog
+already escalates at `ESCALATE_LEAD` before that instant, computed from `disputeRaisedAt` and
+`resolutionPeriodMs` on the exchange record.
+
+Mediation therefore runs inside a window that is already guarded, and its deadline is that escalation
+instant — read from the record, never a timer the mediator starts. Each round checks the time
+remaining. A round that cannot plausibly be answered before the deadline does not ask: it proposes on
+what it has, or returns `cannot_settle`.
+
+**3. The ladder is the actual guarantee.** If mediation reaches no agreement — cap exhausted,
+deadline reached, requests unanswered, or the model saying outright that it cannot settle — the
+watchdog escalates and rung four takes over. The case ends whether or not the mediator succeeds.
+
+⭐ **The mediator has no termination responsibility it can fail at**, and that is the property worth
+having. Its bounds are a counter it cannot exceed and a clock it did not set, both enforced outside
+it. A component that must not hang is a component that eventually will.
+
+⚠️ **An unanswered request is a normal ending, not an error.** There is no seller-side interface in
+this build, so a request addressed to the seller *will* go unanswered — the first realistic case
+produces one. The case proceeds on the evidence that exists, and the case file records what was asked
+and never provided. Treating unanswered as an error condition would deadlock exactly the cases the
+system is for.
+
 ---
 
 ## 6. The clerk
 
 Same bundle, different output: a case file containing the timeline, both parties' positions, what was
 requested and what was provided, and what remains contested.
+
+It runs on the cases mediation did not close — the round cap exhausted, the deadline reached, a
+`cannot_settle`, or requests that went unanswered. **Every request across every round appears in the
+case file, answered or not.** An unanswered request is part of the record of a case, not an absence
+from it: what a party was asked for and did not supply is exactly the kind of thing a human decider
+needs and cannot reconstruct afterwards.
 
 The clerk's job is completeness, not judgement. It does not recommend, cannot see a proposal
 ([§4.4](#44-the-clerk-cannot-see-a-proposal)), and marks every item with its provenance so a human
@@ -331,6 +408,7 @@ A single request per round. No tools, no agent loop, no conversation.
 | Tools | **none — no `tools` field**, see [§4.3](#43-consent) |
 | Photographs | passed as image content blocks, base64 |
 | Credentials | `ANTHROPIC_API_KEY` and `MEDIATOR_MODEL` in `.env`, already reserved in `.env.example` |
+| Round cap | `MEDIATOR_MAX_ROUNDS`, default 3 — **new, to be added to `.env.example`** ([§5.2](#52-rounds-and-how-a-case-is-guaranteed-to-end)) |
 
 `MEDIATOR_MODEL` defaults to `claude-opus-5` when unset. The model in use is recorded on every case
 record, so a case file states which model produced its proposal rather than leaving it to be inferred
@@ -359,6 +437,9 @@ become a lookup table with a language model attached.
 | Grounding retry | one ungrounded response retries; a second one fails the case rather than presenting it |
 | Clerk isolation | a bundle built for the clerk contains no proposal, asserted structurally |
 | Two-round behaviour | recorded round one asks; recorded round two, with the item added, proposes a different number |
+| Round cap | a final round returning `needs_evidence` is rejected; the cap is never exceeded |
+| Deadline | with the escalation instant passed, no request is made and the case closes on what it has |
+| Unanswered request | a request nobody answers ends the case normally and appears in the case file |
 | Replay | a matching hash serves the recording and makes no API call |
 
 Everything above runs against recorded responses and needs no API key. Only a live call needs one.
@@ -369,9 +450,11 @@ Everything above runs against recorded responses and needs no API key. Only a li
 
 - **Private submissions** — deferred, with the reasoning and the real cost in
   [§2.3](#23-visibility--a-slot-not-a-feature).
-- **Multi-round exchange.** The mediator asks once and proposes. A real case might need several
-  rounds, and a party might decline and counter. The protocol supports repeated resolution attempts;
-  this system does not model the negotiation around them.
-- **Chasing evidence from a party who does not respond.** The mediator can request; it has no channel
-  to follow up on and no policy for what happens when a request goes unanswered. In this build the
-  request is shown to the buyer and that is the whole mechanism.
+- **Negotiation after a proposal.** Rounds of evidence-gathering are specified
+  ([§5.2](#52-rounds-and-how-a-case-is-guaranteed-to-end)); rounds of *bargaining* are not. A party
+  who declines a proposal and counters with their own number has no path here. The protocol supports
+  repeated resolution attempts, so this is a gap in this system rather than in what is underneath it.
+- **A channel to reach a party.** The mediator can address a request to either party, but only the
+  buyer is reachable — requests are shown in the buyer's view and that is the whole mechanism. A
+  request to the seller is recorded, shown and expected to go unanswered
+  ([§5.2](#52-rounds-and-how-a-case-is-guaranteed-to-end)).
