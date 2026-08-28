@@ -64,7 +64,7 @@ Ids are assigned by assembly, in a defined order, so the same sources always pro
 | `carrier` | A tracking event, as reported by the tracking aggregator | Proves the parcel's **movement and arrival**. Not signed by the carrier — it is the aggregator's read of the carrier. Says nothing about condition |
 | `buyer` | Submitted by the buyer — photographs, statements | Unverified. A photograph shows what it shows; it does not establish when it was taken |
 | `seller` | Submitted by the seller, including their messages | Unverified, same as above |
-| `listing` | The listing text as published before purchase | Establishes **what was described**, which is what an inaccuracy claim is measured against |
+| `listing` | The description of the item as it stood at purchase | Establishes **what was described**, which is what an inaccuracy claim is measured against. Belongs to the offer rather than to either party — see [§3.1](#31-the-listing-belongs-to-the-offer) |
 | `chain` | Read from the protocol — price, periods, resolver, timestamps | The only provenance that is cryptographically settled |
 
 ⭐ **Provenance is a first-class field rather than a comment** because the system's honesty about
@@ -120,11 +120,39 @@ not have to change later, not because it does anything now.
 | Offer terms | read from the protocol for the `exchangeId` | **Real** |
 | Photographs | files supplied with the case | **Real** — photographs of a real parcel and its contents |
 | Message thread | a case fixture | **Authored.** There is no seller-side interface; the seller's side of this system is scripted |
-| Listing | a case fixture | **Authored**, modelled on a real peer-to-peer marketplace listing |
+| Listing | a case fixture | **Authored**, modelled on a real peer-to-peer marketplace listing. Belongs to the offer by design — [§3.1](#31-the-listing-belongs-to-the-offer) |
 
 ⚠️ **The authored items are marked as such in the bundle and stay marked all the way to the case
 file.** The distinction between what was captured and what was written is the kind of thing that
 gets lost in a rendering layer, and it is not recoverable afterwards.
+
+### 3.1 The listing belongs to the offer
+
+Treating the listing as a case fixture is a property of this build, not of the design. **The listing
+is offer metadata.**
+
+A protocol offer carries `metadataUri` and `metadataHash`, and [the offer model](./offer-model.md)
+has the **seller sign the full offer** — which commits to those fields. A listing carried in offer
+metadata is therefore not a screenshot somebody kept; it is *the description the seller signed*,
+fixed at the moment of purchase, and the hash on chain makes any later alteration detectable. Pinned
+to content-addressed storage, it survives the original advertisement being edited or deleted — which
+is the ordinary fate of a marketplace listing, and otherwise the ordinary way an inaccuracy claim
+becomes unarguable.
+
+The metadata would carry the description text, a capture of the advertisement, and its source
+address.
+
+> ⚠️ **What that proves, precisely.** It proves the description has not changed since purchase and
+> that the seller signed it. It does **not** prove the marketplace ever displayed it — the capture is
+> still a capture. The claim is *this is what was agreed*, never *this is what was published*, and
+> the distinction matters for the same reason tracking data is the aggregator's read rather than the
+> carrier's attestation.
+
+**Not implemented in this build.** Offers currently carry placeholder values in both fields, and the
+listing is an authored fixture with `provenance: "listing"`. Nothing downstream should assume the
+listing is anchored, and nothing should be written that would have to be unwound if it later is: the
+bundle already carries the listing as its own item with its own provenance, which is the whole of
+what anchoring it would change.
 
 ⚠️ **Photographs carry location data**, both in EXIF metadata and in whatever is visible in frame.
 Case fixtures are committed to this repository. Strip metadata at the point a photograph enters the
