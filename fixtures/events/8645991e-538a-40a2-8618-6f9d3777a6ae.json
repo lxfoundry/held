@@ -6,20 +6,22 @@
     "gb-post"
   ],
   "state": {
-    "current": "in_transit",
-    "delivered": false,
+    "current": "delivered",
+    "delivered": true,
     "everAvailableForPickup": false,
     "observed": [
-      "in_transit"
+      "in_transit",
+      "out_for_delivery",
+      "delivered"
     ],
-    "eventCount": 2,
-    "lastEventAt": "2026-08-27T10:10:48+01:00"
+    "eventCount": 7,
+    "lastEventAt": "2026-08-28T13:49:47+01:00"
   },
   "shipment": {
     "shipmentId": "e1aee211-0920-43ee-a6fe-dfe8ddff8bf5",
-    "statusCode": null,
-    "statusCategory": "transit",
-    "statusMilestone": "in_transit",
+    "statusCode": "delivery_delivered",
+    "statusCategory": "delivery",
+    "statusMilestone": "delivered",
     "originCountryCode": null,
     "destinationCountryCode": null,
     "delivery": {
@@ -45,11 +47,11 @@
     "timestamps": {
       "infoReceivedDatetime": "2026-08-26T15:21:01+01:00",
       "inTransitDatetime": "2026-08-26T15:21:01+01:00",
-      "outForDeliveryDatetime": null,
+      "outForDeliveryDatetime": "2026-08-28T10:46:17+01:00",
       "failedAttemptDatetime": null,
       "availableForPickupDatetime": null,
       "exceptionDatetime": null,
-      "deliveredDatetime": null
+      "deliveredDatetime": "2026-08-28T13:49:47+01:00"
     }
   },
   "events": [
@@ -86,8 +88,93 @@
       "statusCode": null,
       "statusCategory": "transit",
       "statusMilestone": "in_transit"
+    },
+    {
+      "eventId": "4646a8d6-19e2-454c-8879-137b3cca49e4",
+      "trackingNumber": "MZ544750899GB",
+      "eventTrackingNumber": "MZ544750899GB",
+      "status": "Shipment Received in Depot",
+      "occurrenceDatetime": "2026-08-27T18:51:51+01:00",
+      "order": null,
+      "datetime": "2026-08-27T18:51:51.000Z",
+      "hasNoTime": false,
+      "utcOffset": "+01:00",
+      "location": "[location]",
+      "sourceCode": "royal-mail-tracking",
+      "courierCode": "gb-post",
+      "statusCode": null,
+      "statusCategory": "transit",
+      "statusMilestone": "in_transit"
+    },
+    {
+      "eventId": "b0a3bd55-e8bd-4896-82e2-d9ddb1f91ffa",
+      "trackingNumber": "MZ544750899GB",
+      "eventTrackingNumber": "MZ544750899GB",
+      "status": "Shipment Received in Depot",
+      "occurrenceDatetime": "2026-08-27T21:00:40+01:00",
+      "order": null,
+      "datetime": "2026-08-27T21:00:40.000Z",
+      "hasNoTime": false,
+      "utcOffset": "+01:00",
+      "location": "[location]",
+      "sourceCode": "royal-mail-tracking",
+      "courierCode": "gb-post",
+      "statusCode": null,
+      "statusCategory": "transit",
+      "statusMilestone": "in_transit"
+    },
+    {
+      "eventId": "e9722c83-bac2-4f5c-aecc-6d78312beedb",
+      "trackingNumber": "MZ544750899GB",
+      "eventTrackingNumber": "MZ544750899GB",
+      "status": "Out for Delivery",
+      "occurrenceDatetime": "2026-08-28T10:46:17+01:00",
+      "order": null,
+      "datetime": "2026-08-28T10:46:17.000Z",
+      "hasNoTime": false,
+      "utcOffset": "+01:00",
+      "location": "[location]",
+      "sourceCode": "royal-mail-tracking",
+      "courierCode": "gb-post",
+      "statusCode": "delivery_out_for_delivery",
+      "statusCategory": "delivery",
+      "statusMilestone": "out_for_delivery"
+    },
+    {
+      "eventId": "0ffde4ae-4439-4abc-bde0-0789063f8d8c",
+      "trackingNumber": "MZ544750899GB",
+      "eventTrackingNumber": "MZ544750899GB",
+      "status": "Shipment Data Processed",
+      "occurrenceDatetime": "2026-08-28T10:46:48+01:00",
+      "order": null,
+      "datetime": "2026-08-28T10:46:48.000Z",
+      "hasNoTime": false,
+      "utcOffset": "+01:00",
+      "location": "[location]",
+      "sourceCode": "royal-mail-tracking",
+      "courierCode": "gb-post",
+      "statusCode": null,
+      "statusCategory": "data",
+      "statusMilestone": "out_for_delivery"
+    },
+    {
+      "eventId": "486881a2-1565-451e-ad33-5c9970f2f240",
+      "trackingNumber": "MZ544750899GB",
+      "eventTrackingNumber": "MZ544750899GB",
+      "status": "Delivered",
+      "occurrenceDatetime": "2026-08-28T13:49:47+01:00",
+      "order": null,
+      "datetime": "2026-08-28T13:49:47.000Z",
+      "hasNoTime": false,
+      "utcOffset": "+01:00",
+      "location": "[location]",
+      "sourceCode": "royal-mail-tracking",
+      "courierCode": "gb-post",
+      "statusCode": "delivery_delivered",
+      "statusCategory": "delivery",
+      "statusMilestone": "delivered"
     }
   ],
   "firstSeenAt": "2026-08-26T18:01:00.886Z",
-  "lastUpdatedAt": "2026-08-27T14:01:48.609Z"
+  "lastUpdatedAt": "2026-08-28T13:49:53.296Z"
 }
