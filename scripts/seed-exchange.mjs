@@ -4,6 +4,19 @@
 //   node scripts/seed-exchange.mjs --tracker <trackerId> --tracking-number <tn>
 //   node scripts/seed-exchange.mjs --tracker <trackerId> --tracking-number <tn> --execute
 //
+// ⭐ And the recovery half of the same job:
+//
+//   node scripts/seed-exchange.mjs --adopt <exchangeId> --tracker <t> --tracking-number <tn> --execute
+//
+// --adopt sends no transaction. It exists because the window this script keeps
+// short is not zero: an exchange can end up live on chain with no record and no
+// authorisations — the relay landed, something after it did not. That exchange
+// is holding the buyer's money with nothing standing guard, and the two failure
+// messages at the bottom of this file say "check it before re-running" without
+// saying what else to do. This is the what else. It reads the exchange back,
+// signs the two authorisations against it and writes the record, so the
+// watchdog can see an exchange it previously could not.
+//
 // ⚠️ THIS COMMAND SPENDS THE BUYER'S MONEY, AND NOTHING IT DOES CAN BE UNDONE.
 // The single relayed transaction below creates the offer, commits to it and
 // redeems it, and the commit moves the price out of the buyer's wallet into the
@@ -69,14 +82,19 @@ const CLOCK_MARGIN_MS = 60 * MS;
 
 const trackerId = arg("tracker");
 const trackingNumber = arg("tracking-number");
+const adopt = arg("adopt");
 const execute = process.argv.includes("--execute");
 const force = process.argv.includes("--force");
 if (!trackerId || !trackingNumber) {
   console.error(
     "✗ usage: node scripts/seed-exchange.mjs --tracker <trackerId> --tracking-number <trackingNumber> [--execute] [--force]"
   );
-  console.error("  both values are required, and neither may be another flag");
+  console.error(
+    "     or: node scripts/seed-exchange.mjs --adopt <exchangeId> --tracker <trackerId> --tracking-number <trackingNumber> [--execute]"
+  );
+  console.error("  the tracker and tracking number are required either way, and neither may be another flag");
   console.error("  without --execute nothing is signed: the run reports what it would do and stops");
+  console.error("  --adopt protects an exchange that already exists on chain, and sends no transaction");
   process.exit(1);
 }
 
@@ -106,6 +124,141 @@ console.log(`config ${config.configId} — chain ${config.chainId}, environment 
 info(`seller ${seller.signer.address}`);
 info(`buyer  ${buyer.signer.address}`);
 if (!execute) info("planning only — nothing will be signed or submitted");
+
+// ⭐ The record first, then the signatures, then the record again. Both paths
+// into this function reach it with an exchange already live on chain and
+// unguarded, so the ordering is the point: the record exists — and the
+// watchdog can therefore see the exchange — before anything that can fail
+// again is attempted. `authorisations` is the only field that changes.
+async function protect({ exchangeId, offerId, redeemedAt, disputePeriodMs, resolutionPeriodMs }) {
+  exchanges.put({
+    exchangeId: String(exchangeId),
+    offerId,
+    configId: config.configId,
+    trackerId,
+    trackingNumber,
+    redeemedAt,
+    disputePeriodMs,
+    resolutionPeriodMs,
+    disputeRaisedAt: null,
+    disputeRaisedBy: null,
+    disputeTimeoutAt: null,
+    escalatedAt: null,
+    finalisedAt: null,
+    outcome: null,
+    authorisations: [],
+  });
+
+  step("capturing the authorisations the deadline logic will need");
+  const toAuthorise = [
+    ["raiseDispute", (args) => buyer.coreSDK.signMetaTxRaiseDispute(args)],
+    ["escalateDispute", (args) => buyer.coreSDK.signMetaTxEscalateDispute(args)],
+  ];
+  for (const [index, [action, sign]] of toAuthorise.entries()) {
+    // ⚠️ Distinct nonces, so neither depends on the other having executed. The
+    // handler marks nonces used rather than requiring them in sequence, so the
+    // two are order-independent — but they must not collide, and two calls to
+    // Date.now() in the same millisecond would.
+    const actionNonce = Date.now() + index;
+    const signedAction = await sign({ nonce: actionNonce, exchangeId });
+    authorisations.save(exchangeId, action, signedAction, {
+      nonce: actionNonce,
+      userAddress: buyer.signer.address,
+    });
+    ok(`${action} authorised for exchange ${exchangeId} only`);
+  }
+
+  exchanges.update(exchangeId, { authorisations: authorisations.list(exchangeId) });
+  return authorisations.list(exchangeId);
+}
+
+// ⭐ Reads what the offer actually says, and refuses a period that did not
+// arrive. getOffer does not revert on an offer the node cannot see yet: it
+// returns a perfectly truthy result with `exists: false` and every duration
+// zeroed, and a zero period recorded as fact stands the watchdog down for the
+// life of the exchange.
+async function periodsFor(offerId, fallback = null) {
+  let offer = null;
+  try {
+    offer = await offerHandler.getOffer(offerId);
+  } catch (err) {
+    if (!fallback) throw err;
+    info(`could not read offer ${offerId} back (${err.message}) — recording the requested periods`);
+  }
+  const durations = offer?.exists ? offer.offerDurations : null;
+  if (!durations) {
+    if (!fallback) throw new Error(`offer ${offerId} does not read back from the protocol`);
+    return fallback;
+  }
+  return {
+    disputePeriodMs: Number(durations.disputePeriod) * MS,
+    resolutionPeriodMs: Number(durations.resolutionPeriod) * MS,
+  };
+}
+
+// --- adopt: protect an exchange that already exists -------------------------
+if (adopt) {
+  if (!/^\d+$/.test(adopt) || !Number.isSafeInteger(Number(adopt))) {
+    console.error(`✗ --adopt expects a whole exchange id, not ${JSON.stringify(adopt)}`);
+    process.exit(1);
+  }
+  // The protocol reads "007" as 7, and so must the store — otherwise this
+  // writes 007.json for an exchange the watchdog looks up as 7.
+  const exchangeId = String(Number(adopt));
+  if (exchangeId !== adopt) console.log(`⚠ reading "${adopt}" as exchange ${exchangeId}`);
+
+  step(`reading exchange ${exchangeId} back from the protocol`);
+  const onChain = await exchangeHandler.getExchange(exchangeId);
+  if (!onChain.exists) {
+    console.error(`✗ exchange ${exchangeId} does not exist on ${config.configId}`);
+    console.error("  an exchange id from another configuration names a different exchange, or none");
+    process.exit(1);
+  }
+  if (onChain.voucher.redeemedDate.isZero()) {
+    console.error(`✗ exchange ${exchangeId} has not been redeemed, so no window is open yet`);
+    console.error("  there is nothing for the watchdog to guard until it is");
+    process.exit(1);
+  }
+  if (!onChain.exchange.finalizedDate.isZero()) {
+    console.error(`✗ exchange ${exchangeId} is already finalised — the money has moved`);
+    console.error("  adopting it would write authorisations that can never be used");
+    process.exit(1);
+  }
+
+  const held = authorisations.list(exchangeId);
+  if (held.length && !force) {
+    console.error(`✗ exchange ${exchangeId} already holds ${held.join(" and ")}`);
+    console.error("  re-signing would replace instruments that are still valid");
+    console.error("  pass --force only if the held ones are known to be lost or wrong");
+    process.exit(1);
+  }
+  if (held.length) console.log(`⚠ --force: replacing the held ${held.join(" and ")}`);
+
+  const redeemedAt = Number(onChain.voucher.redeemedDate) * MS;
+  const offerId = onChain.exchange.offerId.toString();
+  const { disputePeriodMs, resolutionPeriodMs } = await periodsFor(offerId);
+
+  ok(`exchange ${exchangeId} is redeemed and unfinalised — its window is open`);
+  info(`offer ${offerId} — dispute period ${disputePeriodMs / DAY_MS}d, resolution period ${resolutionPeriodMs / DAY_MS}d`);
+  info(`window closes ${new Date(redeemedAt + disputePeriodMs).toISOString()}`);
+  info(`tracker          ${trackerId}`);
+  info(`tracking number  ${trackingNumber}`);
+  info("raiseDispute and escalateDispute would be signed for this exchange and kept for the watchdog");
+
+  if (!execute) {
+    console.log("");
+    console.log("nothing was signed. No transaction is sent either way — adopting only signs and records.");
+    console.log("Protect it with:");
+    console.log(`  npm run seed -- --adopt ${exchangeId} --tracker ${trackerId} --tracking-number ${trackingNumber} --execute`);
+    process.exit(0);
+  }
+
+  const captured = await protect({ exchangeId, offerId, redeemedAt, disputePeriodMs, resolutionPeriodMs });
+  console.log("");
+  console.log(`exchange ${exchangeId} is now protected by ${captured.join(" and ")}.`);
+  console.log(`Confirm receipt with: npm run confirm -- ${exchangeId} --execute`);
+  process.exit(0);
+}
 
 // --- has this parcel already been bought? ----------------------------------
 // ⚠️ The guard with no recovery behind it. Both failure messages at the bottom
@@ -404,77 +557,27 @@ try {
   // arranged to keep short — so a read that fails here must not cost the
   // record. It falls back to what was asked for and says so.
   const offerId = onChain.exchange.offerId.toString();
-  let onChainOffer = null;
-  try {
-    onChainOffer = await offerHandler.getOffer(offerId);
-  } catch (err) {
-    info(`could not read offer ${offerId} back (${err.message}) — recording the requested periods`);
-  }
-  // ⚠️ `exists`, not truthiness. getOffer does not revert on an offer the node
-  // cannot see yet — it returns a perfectly truthy result with `exists: false`
-  // and every duration zeroed. The RPC is a pool, so the read that follows a
-  // write can land on a node one block behind, which is the same lag the
-  // getExchange call above uses waitForState to survive.
-  //
-  // A zero period here would be recorded as fact and would stand the watchdog
-  // down for the life of the exchange: dueAt becomes redeemedAt, every sweep
-  // reads "the window has closed", no dispute is ever raised, and the buyer
-  // pays in full when the real window lapses.
-  const readBack = onChainOffer?.exists ? onChainOffer.offerDurations : null;
-  const disputePeriodMs = readBack ? Number(readBack.disputePeriod) * MS : requestedDisputePeriodMs;
-  const resolutionPeriodMs = readBack ? Number(readBack.resolutionPeriod) * MS : requestedResolutionPeriodMs;
+
+  // ⚠️ Tolerated rather than required, unlike the adopt path. This read sits in
+  // the window between a live exchange and a written record — the window
+  // everything below is arranged to keep short — so a read that fails here must
+  // not cost the record. It falls back to what was asked for and says so.
+  const { disputePeriodMs, resolutionPeriodMs } = await periodsFor(offerId, {
+    disputePeriodMs: requestedDisputePeriodMs,
+    resolutionPeriodMs: requestedResolutionPeriodMs,
+  });
 
   ok(`exchange ${exchangeId} is redeemed — the window is open and the seller must fulfil`);
   info(`offer ${offerId} — dispute period ${disputePeriodMs / DAY_MS}d, resolution period ${resolutionPeriodMs / DAY_MS}d`);
   info(`window closes ${new Date(redeemedAt + disputePeriodMs).toISOString()}`);
 
-  // --- write the record, unprotected, before anything is signed ------------
-  // ⭐ Every field the finished record carries, so this already satisfies the
-  // store's shape check and needs no special-casing later — only
-  // `authorisations` changes, from empty to whatever actually got captured.
-  exchanges.put({
-    exchangeId: String(exchangeId),
-    offerId,
-    configId: config.configId,
-    trackerId,
-    trackingNumber,
-    redeemedAt,
-    disputePeriodMs,
-    resolutionPeriodMs,
-    disputeRaisedAt: null,
-    disputeRaisedBy: null,
-    disputeTimeoutAt: null,
-    escalatedAt: null,
-    finalisedAt: null,
-    outcome: null,
-    authorisations: [],
-  });
-
-  // --- capture the two authorisations ---------------------------------------
-  // ⭐ The second signing step, and the reason it is here rather than earlier.
-  step("capturing the authorisations the deadline logic will need");
-  const toAuthorise = [
-    ["raiseDispute", (args) => buyer.coreSDK.signMetaTxRaiseDispute(args)],
-    ["escalateDispute", (args) => buyer.coreSDK.signMetaTxEscalateDispute(args)],
-  ];
-  for (const [index, [action, sign]] of toAuthorise.entries()) {
-    // ⚠️ Distinct nonces, so neither depends on the other having executed. The
-    // handler marks nonces used rather than requiring them in sequence, so the
-    // two are order-independent — but they must not collide, and two calls to
-    // Date.now() in the same millisecond would.
-    const actionNonce = Date.now() + index;
-    const signedAction = await sign({ nonce: actionNonce, exchangeId });
-    authorisations.save(exchangeId, action, signedAction, {
-      nonce: actionNonce,
-      userAddress: buyer.signer.address,
-    });
-    ok(`${action} authorised for exchange ${exchangeId} only`);
-  }
-
-  exchanges.update(exchangeId, { authorisations: authorisations.list(exchangeId) });
+  // ⭐ The same capture the adopt path uses, deliberately. Recovering an
+  // exchange and creating one differ only in how the exchange came to exist;
+  // what protecting it means must not drift between the two.
+  const captured = await protect({ exchangeId, offerId, redeemedAt, disputePeriodMs, resolutionPeriodMs });
 
   console.log("");
-  console.log(`exchange ${exchangeId} is live and protected by ${authorisations.list(exchangeId).join(" and ")}.`);
+  console.log(`exchange ${exchangeId} is live and protected by ${captured.join(" and ")}.`);
   console.log(`Confirm receipt with: npm run confirm -- ${exchangeId} --execute`);
 } catch (err) {
   console.error(`\n✗ ${err.message}`);
@@ -484,6 +587,11 @@ try {
     console.error(`  tx ${explorer(receipt.transactionHash)}`);
     console.error(`  exchange ${exchangeId}`);
     console.error("  this exchange is live and is not yet protected");
+    console.error("  protect it — no transaction, only signing and recording — with:");
+    console.error(
+      `    npm run seed -- --adopt ${exchangeId} --tracker ${trackerId} --tracking-number ${trackingNumber} --execute`
+    );
+    console.error("  do NOT simply re-run: that escrows the buyer's money a second time");
   } else if (receipt) {
     // ⚠️ A receipt is not a commit. The relayer's receipt carries no status
     // field, so a reverted meta-transaction mines and resolves through exactly
