@@ -467,18 +467,25 @@ info(`tracker          ${trackerId}`);
 info(`tracking number  ${trackingNumber}`);
 info("then raiseDispute and escalateDispute are signed for that exchange and kept for the watchdog");
 
+// --- the seller signs, gaslessly -------------------------------------------
+// ⭐ Deliberately above the gate. This signature is off-chain, costs nothing and
+// commits to nothing — but building the offer struct is where a bad price, a
+// bad period or a missing field is actually caught, and the SDK validates
+// locally before it signs. Gating above this point would mean a planning run
+// never exercised the one step most likely to be wrong, which is the opposite
+// of what planning is for. Nothing leaves this machine until the relay below.
+step("the seller signs the offer");
+const offerSignature = await seller.coreSDK.signFullOffer({ fullOfferArgsUnsigned });
+ok("signed — the seller sends no transaction and pays no gas");
+
 if (!execute) {
   console.log("");
-  console.log("nothing was signed and nothing was submitted.");
+  console.log("the offer is valid and the seller's signature was produced locally.");
+  console.log("Nothing was submitted and no money moved.");
   console.log("Escrow the buyer's money — which cannot be undone — with:");
   console.log(`  npm run seed -- --tracker ${trackerId} --tracking-number ${trackingNumber} --execute`);
   process.exit(0);
 }
-
-// --- the seller signs, gaslessly -------------------------------------------
-step("the seller signs the offer");
-const offerSignature = await seller.coreSDK.signFullOffer({ fullOfferArgsUnsigned });
-ok("signed — the seller sends no transaction and pays no gas");
 
 // --- the buyer submits one relayed meta-transaction ------------------------
 step("the buyer creates, commits and redeems in one transaction");
