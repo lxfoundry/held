@@ -71,19 +71,24 @@ const tx = await coreSDK.relayMetaTransaction({
 
 // ⚠️ The transaction is already submitted the moment relayMetaTransaction
 // returns — tx.hash exists before wait() is even called, because the relayer
-// has already accepted it. Everything from here on, including wait() itself,
-// runs inside one protected span: once it resolves the seller is paid,
-// irreversibly, and nothing below can undo that — it can only fail to finish
-// recording what already happened. A throw anywhere in this span reports what
-// is already known rather than dying into a bare stack trace with nothing to
-// look the transaction up by.
+// has already accepted it. wait() resolving is not proof the protocol acted:
+// its receipt carries no status field, so a completeExchange that reverted on
+// chain comes back through exactly the same path as one that mined
+// successfully (scripts/watchdog.mjs states this too). The transaction was
+// submitted and may have landed; only the read-back below proves it.
+// Everything from here on, including wait() itself, runs inside one protected
+// span: a throw anywhere in it reports what is already known rather than
+// dying into a bare stack trace with nothing to look the transaction up by.
 let receipt;
+let confirmed = false;
 try {
   receipt = await tx.wait();
 
   // ⚠️ Read back through waitForState: the relayer resolves on mining and the
   // RPC is a pool. A finalised date is the protocol's own statement that this
-  // is over, and needs no enum to interpret.
+  // is over, and needs no enum to interpret. It is also the only signal here
+  // that actually proves completeExchange succeeded — wait() alone cannot
+  // distinguish a mined success from a mined revert.
   const finalised = await waitForState(
     async () => {
       const result = await exchangeHandler.getExchange(exchangeId);
@@ -91,6 +96,7 @@ try {
     },
     { what: `exchange ${exchangeId} to read as finalised` }
   );
+  confirmed = true;
 
   const finalisedAt = Number(finalised.exchange.finalizedDate) * 1000;
   if (exchanges.get(exchangeId)) {
@@ -111,9 +117,12 @@ try {
   console.log("  authorisations discarded");
 } catch (err) {
   console.error(`\n✗ ${err.message}`);
-  if (receipt) {
+  if (confirmed) {
     console.error(`  tx ${explorer(receipt.transactionHash)}`);
     console.error(`  exchange ${exchangeId} is finalised and the seller has been paid, but this record was not updated`);
+  } else if (receipt) {
+    console.error(`  tx ${explorer(receipt.transactionHash)}`);
+    console.error("  the transaction mined, but the protocol has not confirmed it finalised — check the transaction before re-running");
   } else {
     console.error(`  tx ${explorer(tx.hash)}`);
     console.error("  the transaction was submitted but its outcome is unconfirmed — check it before re-running");
