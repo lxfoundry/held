@@ -249,11 +249,16 @@ One function. It returns a **discriminated union**, not two modes:
   requests: [
     {
       what:          "a photograph of the outer shipping carton",
-      whyItMatters:  "…which cause it supports, and how it changes the answer",
+      whyItMatters:  "…",          // shown to the party
       whoCanProvide: "buyer",
+      wouldChange: [               // internal — never shown, see §5.1
+        { answer: "carton intact",  implies: "damage pre-existing; description inaccurate", split: 20 },
+        { answer: "carton crushed", implies: "damage in transit; packing inadequate",       split: 8  },
+      ],
     },
     …
   ],
+  provisional: { buyerPercent: 20, reasoning: "…" },   // internal
   findings: [ … ],
 }
 
@@ -309,7 +314,7 @@ path.
 call over a larger bundle, with its own hash and its own recording. There is no history to resend, no
 conversation state to carry and no context to manage, so the record and replay paths in
 [§7](#7-replay) handle any number of rounds unchanged. What multi-round costs is a loop, a cap and a
-flag — see [§5.2](#52-rounds-and-how-a-case-is-guaranteed-to-end).
+flag — see [§5.3](#53-rounds-and-how-a-case-is-guaranteed-to-end).
 
 ⭐ **The diagnostic question is load-bearing or it should not be asked.** A request is only useful if
 the answer changes the proposal — if the same number comes back either way, the question was
@@ -317,7 +322,58 @@ decoration. This is directly testable: run round one, add the item, run round tw
 number moved. A mediator that asks questions whose answers change nothing is worse than one that does
 not ask, because it spends a party's effort to produce the appearance of diligence.
 
-### 5.1 Reasoning is a field, not a trace
+### 5.1 How the mediator knows it has enough
+
+It does not, and asking it to judge that would be circular — *"ask only if it matters"* is an
+instruction, not a mechanism. The question is answered by removing it:
+
+> **The mediator never decides it has enough. Asking is not what it does when it lacks a number — it
+> is what it does when it has one and can say what would change it. A request is a claim that a
+> specific, obtainable piece of evidence would move the split, with the alternative outcomes named.**
+
+That is what `wouldChange` and `provisional` are for. Every `needs_evidence` result carries the split
+the model would propose **right now**, and every request carries the branches it expects and what
+each would imply. If the branches converge, the question does not matter and is not asked.
+
+⚠️ **`cannot_settle` is the one state with no provisional split, and that is the point of it.** It is
+not "I have a number but I am unsure" — that case has a provisional and asks, or proposes. It is *no
+defensible number exists on this evidence*, which is a different claim and the one that justifies
+spending a human's time. A `cannot_settle` carrying a split it declined to propose would be neither.
+
+This turns the load-bearing rule above from something checkable only afterwards into something the
+model must commit to **at the moment of asking**. Four things follow, and the first three are the
+reason this is worth the extra fields:
+
+- **The deadline always has an answer ready.** [§5.3](#53-rounds-and-how-a-case-is-guaranteed-to-end)
+  says a round that cannot be answered in time proposes on what it has. With `provisional`, *what it
+  has* is already a number rather than a scramble at the worst moment.
+- **An unanswered request degrades into a decision.** The mediator proposes the branch the existing
+  evidence best supports and records which branch it assumed.
+- **A final round never has to invent anything**, so the round cap cannot force a number that came
+  from nowhere.
+- **Calibration becomes measurable.** The model said *intact → 20*, the photograph came back intact,
+  and it proposed 12. Its own counterfactual was wrong, and that is visible in the record without
+  anyone having to form a view on whether 12 was fair.
+
+> ⚠️ **`wouldChange` and `provisional` are never shown to a party.** If the buyer can see *intact →
+> 20%, crushed → 8%*, they know which photograph to send, and the evidence request becomes a
+> multiple-choice question with the marks printed on it.
+>
+> `whyItMatters` is the shown field, and it has to motivate the request **without revealing which
+> answer favours the party being asked**. The naive rendering displays the whole request object,
+> which is why this is written down rather than left to be noticed.
+
+**What this does not fix.** Over-curiosity is now detectable after the fact — the branches are in the
+record and can be compared with what actually happened. **Over-confidence is not.** A mediator that
+proposes when a question would have helped produces no request, no branch, and no signal of any kind.
+The round cap and the ladder bound the damage; nothing here prevents it.
+
+⚠️ **No materiality threshold belongs in code.** Do not add a bound rejecting requests whose branches
+differ by less than some percentage. Where that line falls is case-specific judgement, it is the
+model's to make, and it is inspectable in the record — encoding it would be the same error as
+encoding a fairness rule ([§4](#4-the-bounds)).
+
+### 5.2 Reasoning is a field, not a trace
 
 `reasoning` is part of the structured output. It is **not** the model's thinking trace.
 
@@ -325,7 +381,7 @@ The parties are shown what the model chose to present as its account of the deci
 across runs, quotable, and addressed to them. A raw reasoning trace is none of those things — it is
 addressed to nobody, and presenting it as an explanation misrepresents what it is.
 
-### 5.2 Rounds, and how a case is guaranteed to end
+### 5.3 Rounds, and how a case is guaranteed to end
 
 A component that asks for evidence can wait forever, and a component that may ask again can ask
 forever. Three bounds prevent it, and **the mediator owns only the weakest of them**.
@@ -408,7 +464,7 @@ A single request per round. No tools, no agent loop, no conversation.
 | Tools | **none — no `tools` field**, see [§4.3](#43-consent) |
 | Photographs | passed as image content blocks, base64 |
 | Credentials | `ANTHROPIC_API_KEY` and `MEDIATOR_MODEL` in `.env`, already reserved in `.env.example` |
-| Round cap | `MEDIATOR_MAX_ROUNDS`, default 3 — **new, to be added to `.env.example`** ([§5.2](#52-rounds-and-how-a-case-is-guaranteed-to-end)) |
+| Round cap | `MEDIATOR_MAX_ROUNDS`, default 3 — **new, to be added to `.env.example`** ([§5.3](#53-rounds-and-how-a-case-is-guaranteed-to-end)) |
 
 `MEDIATOR_MODEL` defaults to `claude-opus-5` when unset. The model in use is recorded on every case
 record, so a case file states which model produced its proposal rather than leaving it to be inferred
@@ -437,6 +493,9 @@ become a lookup table with a language model attached.
 | Grounding retry | one ungrounded response retries; a second one fails the case rather than presenting it |
 | Clerk isolation | a bundle built for the clerk contains no proposal, asserted structurally |
 | Two-round behaviour | recorded round one asks; recorded round two, with the item added, proposes a different number |
+| Provisional present | every `needs_evidence` carries a provisional split; `cannot_settle` carries none |
+| Branches present | every request names at least two branches, and they do not all imply the same split |
+| Display isolation | nothing rendered to a party contains `wouldChange` or `provisional`, asserted over the whole rendered surface |
 | Round cap | a final round returning `needs_evidence` is rejected; the cap is never exceeded |
 | Deadline | with the escalation instant passed, no request is made and the case closes on what it has |
 | Unanswered request | a request nobody answers ends the case normally and appears in the case file |
@@ -451,10 +510,10 @@ Everything above runs against recorded responses and needs no API key. Only a li
 - **Private submissions** — deferred, with the reasoning and the real cost in
   [§2.3](#23-visibility--a-slot-not-a-feature).
 - **Negotiation after a proposal.** Rounds of evidence-gathering are specified
-  ([§5.2](#52-rounds-and-how-a-case-is-guaranteed-to-end)); rounds of *bargaining* are not. A party
+  ([§5.3](#53-rounds-and-how-a-case-is-guaranteed-to-end)); rounds of *bargaining* are not. A party
   who declines a proposal and counters with their own number has no path here. The protocol supports
   repeated resolution attempts, so this is a gap in this system rather than in what is underneath it.
 - **A channel to reach a party.** The mediator can address a request to either party, but only the
   buyer is reachable — requests are shown in the buyer's view and that is the whole mechanism. A
   request to the seller is recorded, shown and expected to go unanswered
-  ([§5.2](#52-rounds-and-how-a-case-is-guaranteed-to-end)).
+  ([§5.3](#53-rounds-and-how-a-case-is-guaranteed-to-end)).
