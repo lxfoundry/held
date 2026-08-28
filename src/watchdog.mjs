@@ -48,7 +48,21 @@ export function createWatchdog({
     const facts = Object.fromEntries(Object.entries(chain).filter(([, value]) => value != null));
     const current = exchanges.update(record.exchangeId, facts);
 
-    const tracking = current.trackerId ? (trackers.read(current.trackerId)?.state ?? null) : null;
+    // ⚠️ An unreadable snapshot is an absence of delivery evidence, not a reason
+    // to stand down. Letting it throw would abort this exchange's step, and the
+    // window could then lapse in the seller's favour — the one outcome the
+    // watchdog exists to prevent. So it takes the same branch as no tracking at
+    // all, loudly: the operator has a file to fix, and meanwhile a nearing
+    // deadline still raises.
+    let tracking = null;
+    if (current.trackerId) {
+      try {
+        tracking = trackers.read(current.trackerId)?.state ?? null;
+      } catch (err) {
+        result.trackingUnreadable = true;
+        log(`⚠ exchange ${current.exchangeId}: tracker ${current.trackerId} is unreadable, treating it as no delivery evidence — ${err.message}`);
+      }
+    }
     const { action, reason, dueAt } = decide({
       tracking,
       record: current,

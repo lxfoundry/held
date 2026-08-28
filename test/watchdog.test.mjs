@@ -8,6 +8,7 @@ import { createWatchdog } from "../src/watchdog.mjs";
 import { createExchangeStore } from "../src/exchanges.mjs";
 import { createAuthorisationStore } from "../src/authorisations.mjs";
 import { ACTIONS } from "../src/adapter.mjs";
+import { CorruptSnapshotError } from "../src/store.mjs";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -30,6 +31,7 @@ function harness({
   withAuthorisations = true,
   relayImpl,
   confirmImpl,
+  trackersImpl,
 } = {}) {
   const exchanges = createExchangeStore(mkdtempSync(join(tmpdir(), "held-wd-x-")));
   const authorisations = createAuthorisationStore(mkdtempSync(join(tmpdir(), "held-wd-a-")));
@@ -57,7 +59,7 @@ function harness({
   }
 
   const relayed = [];
-  const trackers = { read: () => ({ state: { current: "in_transit", delivered: false, everAvailableForPickup: false } }) };
+  const trackers = trackersImpl ?? { read: () => ({ state: { current: "in_transit", delivered: false, everAvailableForPickup: false } }) };
   const watchdog = createWatchdog({
     exchanges,
     trackers,
@@ -244,4 +246,24 @@ test("a finalised exchange has its authorisations discarded, not left on disk", 
   await watchdog.sweep();
 
   assert.deepEqual(authorisations.list("42"), []);
+});
+
+test("an unreadable tracker snapshot raises anyway, rather than disarming the exchange", async () => {
+  // ⚠️ A corrupt snapshot used to throw out of trackers.read(), through step()
+  // and into the per-exchange catch: the exchange was reported as an error and
+  // never acted on, so the window could lapse in the seller's favour on the
+  // strength of a file nobody could parse. An unreadable snapshot is an absence
+  // of delivery evidence, so it takes the same branch as no tracking at all.
+  const { watchdog, relayed } = harness({
+    trackersImpl: {
+      read: () => { throw new CorruptSnapshotError("/snapshots/tracker-1.json", "Unexpected end of JSON input"); },
+    },
+  });
+
+  const [result] = await watchdog.sweep();
+
+  assert.equal(result.trackingUnreadable, true, "the unreadable snapshot is reported, not swallowed");
+  assert.equal(result.action, ACTIONS.RAISE, "and the nearing deadline is still acted on");
+  assert.equal(result.relayed, true);
+  assert.equal(relayed.length, 1);
 });
