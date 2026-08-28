@@ -27,6 +27,52 @@ the temptation to build them as two features is the main design risk in this par
 ⚠️ **The clerk does not recommend an outcome**, and this is enforced by how its input is built
 rather than by asking it not to — see [§4.4](#44-the-clerk-cannot-see-a-proposal).
 
+### 1.1 What triggers the mediator
+
+**One trigger: a dispute exists on the exchange** — `disputeRaisedAt` is set on the record. Delivery
+state, evidence quality and which rung of the ladder the case resembles have no part in it.
+
+Who put it there is what varies:
+
+| Tracking says | The buyer | Who raises | Mediation |
+|---|---|---|---|
+| `delivered` | is content | nobody — they confirm, or the window lapses and the seller is paid | no dispute, so none |
+| **`delivered`** | **finds something wrong** | **the buyer, explicitly** | ⭐ **the case this component exists for** |
+| not delivered, window nearing expiry | passive | the watchdog, on their behalf | runs; the evidence is usually one-sided |
+| not delivered | acts before the watchdog | the buyer | runs |
+| made available for collection | — | nobody automatically — the watchdog stands down, because the seller performed | only if the buyer raises anyway |
+
+⭐ **The watchdog cannot produce the mediator's central case, by design.** On `delivered` the
+decision function takes no action, on the ground that confirming belongs to the buyer — tracking
+proves arrival, not condition, and cannot see a crushed box
+([tracking-state mapping](./tracking-state-mapping.md)). A parcel that arrived damaged therefore
+reaches mediation **only because the buyer said so**. There is no automatic path into rung three and
+there should not be one: an automatic raise on a delivered parcel would accuse a seller on evidence
+that shows they performed.
+
+⭐ **Rungs are outcomes, not code paths.** A raised dispute is a raised dispute. Rung two is the
+sub-case where the evidence is one-sided enough that the seller accepts at once — but if they do not,
+that dispute sits open and is handled identically. **Mediation therefore runs on every open dispute**,
+and no rule decides which ones deserve it. Such a rule would be tracking-derived policy in code,
+which is the thing [§4](#4-the-bounds) exists to keep out.
+
+> ⚠️ **Prerequisite: a buyer-initiated raise, which does not exist yet.**
+>
+> The only raisers today are the watchdog and the seeding script. The buyer's *"something is wrong"*
+> action has to be built before the mediator's principal case is reachable at all, and it is a
+> separate piece of work from anything else in this document.
+>
+> It needs no new mechanism. It spends **the same pre-signed `raiseDispute` authorisation the
+> watchdog would have spent** — one instrument, two possible spenders — and the watchdog then stands
+> down on its own, because the decision function moves to the escalation branch as soon as
+> `disputeRaisedAt` is set. What it does need is that the attempt is recorded **before** the relay and
+> attributed when the chain confirms, so a raise whose confirmation is lost is not later attributed
+> to the wrong party.
+>
+> Attribution is buyer-visible and is the whole point of getting it right: a buyer who raised a
+> dispute themselves must not be told the system raised it for them. As everywhere, the buyer never
+> encounters the word *dispute*.
+
 ---
 
 ## 2. The evidence bundle
@@ -493,6 +539,7 @@ become a lookup table with a language model attached.
 | Grounding retry | one ungrounded response retries; a second one fails the case rather than presenting it |
 | Clerk isolation | a bundle built for the clerk contains no proposal, asserted structurally |
 | Two-round behaviour | recorded round one asks; recorded round two, with the item added, proposes a different number |
+| Trigger | mediation runs on any record with `disputeRaisedAt` set, whoever raised it, and on no record without it |
 | Provisional present | every `needs_evidence` carries a provisional split; `cannot_settle` carries none |
 | Branches present | every request names at least two branches, and they do not all imply the same split |
 | Display isolation | nothing rendered to a party contains `wouldChange` or `provisional`, asserted over the whole rendered surface |

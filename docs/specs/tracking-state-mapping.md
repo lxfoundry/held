@@ -66,6 +66,13 @@ On `delivered` the adapter therefore only *enables* confirmation. The buyer conf
 is paid, or the buyer disputes, or the window lapses and the seller is paid anyway. **A delivery scan
 never moves money on its own.**
 
+⭐ **On this row the buyer is the only possible raiser, and that has a consequence worth stating.**
+A parcel that arrived damaged produces no automatic action here and none anywhere else: the watchdog
+raises only where nothing was delivered. So the entire *arrived but wrong* class of case —
+[everything mediation exists for](./evidence-and-mediation.md) — depends on the buyer having an
+explicit way to say so. That path is buyer-initiated by design rather than by omission; an automatic
+raise on a delivered parcel would accuse a seller on evidence showing they performed.
+
 ### ⭐ When the seller has performed and the buyer has not
 
 `available_for_pickup` means the parcel reached a collection point and is **waiting for the buyer**.
@@ -263,6 +270,7 @@ inside free-text `location` strings where no field name suggests it. See rule 8 
 | Retracting a dispute | Abandons the buyer's position |
 | Acting on `failed_attempt` / `available_for_pickup` | The carrier needs the *buyer*, not us |
 | Raising a dispute after the parcel was made available for collection | The seller performed. Non-collection is the buyer's own doing, and the protocol default is already the just outcome |
+| Raising a dispute on a **delivered** parcel | Tracking cannot see condition. Only the buyer knows something is wrong, so only the buyer can say it — see [evidence and mediation](./evidence-and-mediation.md) |
 | Deciding an escalated dispute | The dispute resolver decides. That is the whole point |
 
 ---
