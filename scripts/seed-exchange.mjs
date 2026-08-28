@@ -206,20 +206,22 @@ const tx = await buyer.coreSDK.relayMetaTransaction({
   sigV: signedTx.v,
   nonce,
 });
-const receipt = await tx.wait();
-ok(`relayed — tx ${explorer(receipt.transactionHash)}`);
-
-// ⚠️ The transaction above is already mined: the offer was created, committed
-// and redeemed, and the buyer's money is escrowed. Nothing from here on can be
-// "undone" by a script failure — it can only fail to finish recording what
-// already happened on-chain. So the exchange id is captured first, a record
-// with an empty authorisations list is written before either signature is
-// requested, and everything in between is wrapped: a failure anywhere in this
-// span must say, loudly, that a live exchange exists and is not protected —
-// never die into a bare stack trace that leaves it invisible to the store and
-// the watchdog both.
+// ⚠️ The transaction is already submitted the moment relayMetaTransaction
+// returns — tx.hash exists before wait() is even called, because the relayer
+// has already accepted it. wait() can still fail or time out independently of
+// what the chain does, so everything from here on, including wait() itself,
+// runs inside one protected span: a throw anywhere in it reports what is
+// already known — the hash, then the receipt, then the exchange id — rather
+// than dying into a bare stack trace with nothing to look the transaction up
+// by. Once a receipt exists the exchange id is captured, a record with an
+// empty authorisations list is written before either signature is requested,
+// and the two signing calls are the last things that can fail.
+let receipt;
 let exchangeId;
 try {
+  receipt = await tx.wait();
+  ok(`relayed — tx ${explorer(receipt.transactionHash)}`);
+
   exchangeId = buyer.coreSDK.getCommittedExchangeIdFromLogs(receipt.logs);
   if (!exchangeId) {
     throw new Error("the transaction mined but no exchange id appears in its logs");
@@ -289,8 +291,13 @@ try {
   console.log(`Confirm receipt with: npm run confirm -- ${exchangeId}`);
 } catch (err) {
   console.error(`\n✗ ${err.message}`);
-  console.error(`  tx ${explorer(receipt.transactionHash)}`);
-  if (exchangeId) console.error(`  exchange ${exchangeId}`);
-  console.error("  this exchange is live and is not yet protected");
+  if (receipt) {
+    console.error(`  tx ${explorer(receipt.transactionHash)}`);
+    if (exchangeId) console.error(`  exchange ${exchangeId}`);
+    console.error("  this exchange is live and is not yet protected");
+  } else {
+    console.error(`  tx ${explorer(tx.hash)}`);
+    console.error("  the transaction was submitted but its outcome is unconfirmed — check it before re-running");
+  }
   process.exitCode = 1;
 }
