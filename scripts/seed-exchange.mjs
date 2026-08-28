@@ -45,7 +45,7 @@ const DAY_MS = 86_400 * MS;
 const trackerId = arg("tracker");
 const trackingNumber = arg("tracking-number");
 if (!trackerId || !trackingNumber) {
-  console.log("✗ usage: node scripts/seed-exchange.mjs --tracker <trackerId> --tracking-number <trackingNumber>");
+  console.error("✗ usage: node scripts/seed-exchange.mjs --tracker <trackerId> --tracking-number <trackingNumber>");
   process.exit(1);
 }
 
@@ -83,7 +83,7 @@ step("reading the resolver and the protocol floors");
 const resolverId = env.DISPUTE_RESOLVER_ID;
 const [resolverExists, , fees] = await accountHandler.getDisputeResolver(resolverId);
 if (!resolverExists) {
-  console.log(`✗ dispute resolver ${resolverId} does not exist on ${config.configId}`);
+  console.error(`✗ dispute resolver ${resolverId} does not exist on ${config.configId}`);
   process.exit(1);
 }
 const fee =
@@ -91,7 +91,7 @@ const fee =
     (f) => f.tokenAddress.toLowerCase() === env.EXCHANGE_TOKEN_ADDRESS?.toLowerCase() && f.feeAmount.isZero()
   ) ?? fees.find((f) => f.feeAmount.isZero() && f.tokenAddress !== constants.AddressZero);
 if (!fee) {
-  console.log("✗ the resolver lists no usable token at zero fee");
+  console.error("✗ the resolver lists no usable token at zero fee");
   process.exit(1);
 }
 const exchangeToken = fee.tokenAddress;
@@ -99,7 +99,7 @@ ok(`exchange token ${fee.tokenName || exchangeToken}, resolver fee 0`);
 
 const [sellerExists, sellerAccount] = await accountHandler.getSellerByAddress(seller.signer.address);
 if (!sellerExists) {
-  console.log(`✗ ${seller.signer.address} has no seller account — run \`npm run provision\` first`);
+  console.error(`✗ ${seller.signer.address} has no seller account — run \`npm run provision\` first`);
   process.exit(1);
 }
 ok(`seller account ${sellerAccount.id}`);
@@ -209,66 +209,88 @@ const tx = await buyer.coreSDK.relayMetaTransaction({
 const receipt = await tx.wait();
 ok(`relayed — tx ${explorer(receipt.transactionHash)}`);
 
-const exchangeId = buyer.coreSDK.getCommittedExchangeIdFromLogs(receipt.logs);
-if (!exchangeId) {
-  console.log("✗ the transaction mined but no exchange id appears in its logs");
-  process.exit(1);
-}
+// ⚠️ The transaction above is already mined: the offer was created, committed
+// and redeemed, and the buyer's money is escrowed. Nothing from here on can be
+// "undone" by a script failure — it can only fail to finish recording what
+// already happened on-chain. So the exchange id is captured first, a record
+// with an empty authorisations list is written before either signature is
+// requested, and everything in between is wrapped: a failure anywhere in this
+// span must say, loudly, that a live exchange exists and is not protected —
+// never die into a bare stack trace that leaves it invisible to the store and
+// the watchdog both.
+let exchangeId;
+try {
+  exchangeId = buyer.coreSDK.getCommittedExchangeIdFromLogs(receipt.logs);
+  if (!exchangeId) {
+    throw new Error("the transaction mined but no exchange id appears in its logs");
+  }
 
-// ⚠️ Not read directly. The relayer resolves on mining and the shipped RPC is a
-// pool, so a read here can be answered by a node that does not have the block —
-// which reads exactly like a failed transaction and is not one.
-const onChain = await waitForState(
-  async () => {
-    const result = await exchangeHandler.getExchange(exchangeId);
-    return result.exists && !result.voucher.redeemedDate.isZero() ? result : null;
-  },
-  { what: `exchange ${exchangeId} to read as redeemed` }
-);
-const redeemedAt = Number(onChain.voucher.redeemedDate) * MS;
-ok(`exchange ${exchangeId} is redeemed — the window is open and the seller must fulfil`);
-info(`window closes ${new Date(redeemedAt + disputePeriodMs).toISOString()}`);
+  // ⚠️ Not read directly. The relayer resolves on mining and the shipped RPC is
+  // a pool, so a read here can be answered by a node that does not have the
+  // block — which reads exactly like a failed transaction and is not one.
+  const onChain = await waitForState(
+    async () => {
+      const result = await exchangeHandler.getExchange(exchangeId);
+      return result.exists && !result.voucher.redeemedDate.isZero() ? result : null;
+    },
+    { what: `exchange ${exchangeId} to read as redeemed` }
+  );
+  const redeemedAt = Number(onChain.voucher.redeemedDate) * MS;
+  ok(`exchange ${exchangeId} is redeemed — the window is open and the seller must fulfil`);
+  info(`window closes ${new Date(redeemedAt + disputePeriodMs).toISOString()}`);
 
-// --- capture the two authorisations ----------------------------------------
-// ⭐ The second signing step, and the reason it is here rather than earlier.
-step("capturing the authorisations the deadline logic will need");
-const toAuthorise = [
-  ["raiseDispute", (args) => buyer.coreSDK.signMetaTxRaiseDispute(args)],
-  ["escalateDispute", (args) => buyer.coreSDK.signMetaTxEscalateDispute(args)],
-];
-for (const [index, [action, sign]] of toAuthorise.entries()) {
-  // ⚠️ Distinct nonces, so neither depends on the other having executed. The
-  // handler marks nonces used rather than requiring them in sequence, so the
-  // two are order-independent — but they must not collide, and two calls to
-  // Date.now() in the same millisecond would.
-  const actionNonce = Date.now() + index;
-  const signedAction = await sign({ nonce: actionNonce, exchangeId });
-  authorisations.save(exchangeId, action, signedAction, {
-    nonce: actionNonce,
-    userAddress: buyer.signer.address,
+  // --- write the record, unprotected, before anything is signed ------------
+  // ⭐ Every field the finished record carries, so this already satisfies the
+  // store's shape check and needs no special-casing later — only
+  // `authorisations` changes, from empty to whatever actually got captured.
+  exchanges.put({
+    exchangeId: String(exchangeId),
+    offerId,
+    configId: config.configId,
+    trackerId,
+    trackingNumber,
+    redeemedAt,
+    disputePeriodMs,
+    resolutionPeriodMs,
+    disputeRaisedAt: null,
+    disputeRaisedBy: null,
+    disputeTimeoutAt: null,
+    escalatedAt: null,
+    finalisedAt: null,
+    outcome: null,
+    authorisations: [],
   });
-  ok(`${action} authorised for exchange ${exchangeId} only`);
+
+  // --- capture the two authorisations ---------------------------------------
+  // ⭐ The second signing step, and the reason it is here rather than earlier.
+  step("capturing the authorisations the deadline logic will need");
+  const toAuthorise = [
+    ["raiseDispute", (args) => buyer.coreSDK.signMetaTxRaiseDispute(args)],
+    ["escalateDispute", (args) => buyer.coreSDK.signMetaTxEscalateDispute(args)],
+  ];
+  for (const [index, [action, sign]] of toAuthorise.entries()) {
+    // ⚠️ Distinct nonces, so neither depends on the other having executed. The
+    // handler marks nonces used rather than requiring them in sequence, so the
+    // two are order-independent — but they must not collide, and two calls to
+    // Date.now() in the same millisecond would.
+    const actionNonce = Date.now() + index;
+    const signedAction = await sign({ nonce: actionNonce, exchangeId });
+    authorisations.save(exchangeId, action, signedAction, {
+      nonce: actionNonce,
+      userAddress: buyer.signer.address,
+    });
+    ok(`${action} authorised for exchange ${exchangeId} only`);
+  }
+
+  exchanges.update(exchangeId, { authorisations: authorisations.list(exchangeId) });
+
+  console.log("");
+  console.log(`exchange ${exchangeId} is live and protected by ${authorisations.list(exchangeId).join(" and ")}.`);
+  console.log(`Confirm receipt with: npm run confirm -- ${exchangeId}`);
+} catch (err) {
+  console.error(`\n✗ ${err.message}`);
+  console.error(`  tx ${explorer(receipt.transactionHash)}`);
+  if (exchangeId) console.error(`  exchange ${exchangeId}`);
+  console.error("  this exchange is live and is not yet protected");
+  process.exitCode = 1;
 }
-
-// --- write the record ------------------------------------------------------
-exchanges.put({
-  exchangeId: String(exchangeId),
-  offerId,
-  configId: config.configId,
-  trackerId,
-  trackingNumber,
-  redeemedAt,
-  disputePeriodMs,
-  resolutionPeriodMs,
-  disputeRaisedAt: null,
-  disputeRaisedBy: null,
-  disputeTimeoutAt: null,
-  escalatedAt: null,
-  finalisedAt: null,
-  outcome: null,
-  authorisations: authorisations.list(exchangeId),
-});
-
-console.log("");
-console.log(`exchange ${exchangeId} is live and protected by ${authorisations.list(exchangeId).join(" and ")}.`);
-console.log(`Confirm receipt with: npm run confirm -- ${exchangeId}`);
