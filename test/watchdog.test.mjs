@@ -1,7 +1,7 @@
 // test/watchdog.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createWatchdog } from "../src/watchdog.mjs";
@@ -14,15 +14,23 @@ const DAY = 24 * HOUR;
 const PERIOD = 7 * DAY;
 const leads = { raiseMs: 48 * HOUR, escalateMs: 24 * HOUR };
 
-const signed = {
-  functionName: "raiseDispute(uint256)",
+const BUYER = "0x1111111111111111111111111111111111111111";
+
+const signedFor = (action) => ({
+  functionName: `${action}(uint256)`,
   functionSignature: "0xdeadbeef",
   r: `0x${"1".repeat(64)}`,
   s: `0x${"2".repeat(64)}`,
   v: 27,
-};
+});
 
-function harness({ recordOver = {}, chainOver = {}, withAuthorisations = true, relayImpl } = {}) {
+function harness({
+  recordOver = {},
+  chainOver = {},
+  withAuthorisations = true,
+  relayImpl,
+  confirmImpl,
+} = {}) {
   const exchanges = createExchangeStore(mkdtempSync(join(tmpdir(), "held-wd-x-")));
   const authorisations = createAuthorisationStore(mkdtempSync(join(tmpdir(), "held-wd-a-")));
   exchanges.put({
@@ -44,8 +52,8 @@ function harness({ recordOver = {}, chainOver = {}, withAuthorisations = true, r
     ...recordOver,
   });
   if (withAuthorisations) {
-    authorisations.save("42", "raiseDispute", signed, 1);
-    authorisations.save("42", "escalateDispute", signed, 2);
+    authorisations.save("42", "raiseDispute", signedFor("raiseDispute"), { nonce: 1, userAddress: BUYER });
+    authorisations.save("42", "escalateDispute", signedFor("escalateDispute"), { nonce: 2, userAddress: BUYER });
   }
 
   const relayed = [];
@@ -64,6 +72,7 @@ function harness({ recordOver = {}, chainOver = {}, withAuthorisations = true, r
       ...chainOver,
     }),
     relay: relayImpl ?? (async (stored) => { relayed.push(stored); return { transactionHash: "0xabc" }; }),
+    confirm: confirmImpl ?? (async () => true),
     leadsFor: () => leads,
     now: () => PERIOD - HOUR,
   });
@@ -160,4 +169,79 @@ test("a resolution window nearing expiry escalates and discards that authorisati
   assert.equal(authorisations.has("42", "escalateDispute"), false);
   assert.equal(authorisations.has("42", "raiseDispute"), true); // untouched
   assert.ok(exchanges.get("42").escalatedAt);
+});
+
+// ── The relay landing, as opposed to being accepted ───────────────────────────
+
+test("a relay that did not land keeps the authorisation and records nothing", async () => {
+  // ⚠️ The bug this pins down: relaying resolves when the relayer accepted the
+  // transaction, not when the protocol recorded it. A meta-transaction that
+  // reverts comes back through the same path as one that succeeded — so
+  // without the read-back the watchdog deleted the buyer's only signature,
+  // wrote down that the dispute was raised, and never tried again.
+  const { watchdog, exchanges, authorisations, relayed } = harness({
+    confirmImpl: async () => { throw new Error("raiseDispute was not recorded for exchange 42"); },
+  });
+
+  const [result] = await watchdog.sweep();
+
+  assert.equal(relayed.length, 1, "it did relay");
+  assert.equal(result.relayed, false, "but it is not reported as relayed");
+  assert.match(result.error, /not recorded/);
+
+  // The two things that must survive a failed relay.
+  assert.equal(authorisations.has("42", "raiseDispute"), true, "the authorisation is kept");
+  assert.equal(exchanges.get("42").disputeRaisedAt, null, "no raise is recorded");
+});
+
+test("a watchdog without a way to confirm is refused outright", () => {
+  // Defaulting this to a no-op would restore the silent-success bug, so it is
+  // required rather than optional.
+  assert.throws(
+    () => createWatchdog({ exchanges: {}, trackers: {}, authorisations: {}, readChainState: async () => ({}), relay: async () => {}, leadsFor: () => leads }),
+    /needs a confirm\(\)/
+  );
+});
+
+test("the authorisation is discarded only once the action is confirmed", async () => {
+  const order = [];
+  const { watchdog, authorisations } = harness({
+    relayImpl: async () => { order.push("relay"); },
+    confirmImpl: async () => {
+      order.push("confirm");
+      assert.equal(authorisations.has("42", "raiseDispute"), true, "still held while confirming");
+    },
+  });
+  await watchdog.sweep();
+  assert.deepEqual(order, ["relay", "confirm"]);
+  assert.equal(authorisations.has("42", "raiseDispute"), false);
+});
+
+// ── One bad file must not disarm the whole sweep ──────────────────────────────
+
+test("a corrupt record is reported and the others are still swept", async () => {
+  // ⚠️ This used to throw out of exchanges.all(), which is outside the
+  // per-exchange catch — so one truncated file killed every subsequent sweep
+  // and nothing was protected from that moment on.
+  const { watchdog, exchanges } = harness();
+  writeFileSync(join(exchanges.dir, "99.json"), "{ truncated");
+
+  const results = await watchdog.sweep();
+
+  const corrupt = results.find((r) => r.exchangeId === "99");
+  assert.ok(corrupt?.unreadable, "the unreadable record is reported, not skipped in silence");
+  assert.ok(results.some((r) => r.exchangeId === "42" && r.action === ACTIONS.RAISE),
+    "and the exchange whose window is closing is still acted on");
+});
+
+test("a finalised exchange has its authorisations discarded, not left on disk", async () => {
+  // The spec is "discard on use, or once the exchange completes". Only the
+  // first half existed, so a settled exchange kept live bearer instruments
+  // indefinitely — signatures nobody needs and anybody holding could relay.
+  const { watchdog, authorisations } = harness({ chainOver: { finalisedAt: 1_000 } });
+  assert.deepEqual(authorisations.list("42").sort(), ["escalateDispute", "raiseDispute"]);
+
+  await watchdog.sweep();
+
+  assert.deepEqual(authorisations.list("42"), []);
 });

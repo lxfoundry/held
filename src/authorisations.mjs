@@ -20,19 +20,36 @@ import { ROOT } from "./env.mjs";
 // without changing the specification this implements.
 export const PERMITTED_ACTIONS = ["raiseDispute", "escalateDispute"];
 
+// What the signature for each action must say it authorises. These are the
+// exact strings the protocol signs over, so an instrument that does not carry
+// one of them is not the thing its filename claims.
+const SIGNED_AS = {
+  raiseDispute: "raiseDispute(uint256)",
+  escalateDispute: "escalateDispute(uint256)",
+};
+
 export class UnsafeAuthorisationDirError extends Error {
   constructor(dir) {
-    super(`refusing to keep authorisations in ${dir}: that path is committed`);
+    super(
+      `refusing to keep authorisations in ${dir}: inside the repository, only state/ is ignored by git`
+    );
     this.name = "UnsafeAuthorisationDirError";
   }
 }
 
-const COMMITTED = ["fixtures", "docs", "test", "src", "scripts", ".github"];
+// ⭐ An allowlist, not a list of the paths we happened to think of. Naming the
+// committed directories means any path nobody listed — `auth/`, or the
+// repository root itself — is accepted, written with bearer instruments in it,
+// and then committed, in a repository that is published. Inside the repository
+// the only safe answer is the directory .gitignore already covers; outside it,
+// git is not involved at all.
+const IGNORED_DIR = "state";
 
 function assertSafeDir(dir) {
   const full = resolve(dir);
-  const relative = full.startsWith(ROOT + sep) ? full.slice(ROOT.length + 1) : null;
-  if (relative && COMMITTED.includes(relative.split(sep)[0])) {
+  if (full === ROOT) throw new UnsafeAuthorisationDirError(full);
+  if (!full.startsWith(ROOT + sep)) return full;
+  if (full.slice(ROOT.length + 1).split(sep)[0] !== IGNORED_DIR) {
     throw new UnsafeAuthorisationDirError(full);
   }
   return full;
@@ -50,11 +67,28 @@ export function createAuthorisationStore(dir) {
 
   const pathFor = (exchangeId, action) => join(root, `${String(exchangeId)}.${action}.json`);
 
-  function save(exchangeId, action, signed, nonce) {
+  // `userAddress` is the buyer's public address, kept beside the signature
+  // because the relayer needs to be told who signed. It is public, and holding
+  // it is what removes any reason for this system to hold their key.
+  function save(exchangeId, action, signed, { nonce, userAddress }) {
     assertPermitted(action);
+
+    // ⭐ The action space is enforced on what was signed, not on the name the
+    // caller passed. Checking the argument alone would let a completeExchange
+    // signature be filed under raiseDispute and relayed verbatim — through the
+    // one component whose whole purpose is that it cannot do that.
+    if (signed.functionName !== SIGNED_AS[action]) {
+      throw new Error(
+        `refusing to store a ${signed.functionName} signature as ${action}: ` +
+          `an authorisation for ${action} must be signed over ${SIGNED_AS[action]}`
+      );
+    }
+    if (!userAddress) throw new Error("an authorisation needs the address that signed it");
+
     const stored = {
       exchangeId: String(exchangeId),
       action,
+      userAddress,
       functionName: signed.functionName,
       functionSignature: signed.functionSignature,
       r: signed.r,

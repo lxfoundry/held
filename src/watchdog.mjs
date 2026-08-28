@@ -18,10 +18,21 @@ export function createWatchdog({
   authorisations,
   readChainState,
   relay,
+  confirm,
   leadsFor,
   now = () => Date.now(),
   log = () => {},
 }) {
+  // ⭐ Required, and deliberately not defaulted to a no-op. Relaying resolves
+  // when the relayer accepted the transaction, which is not the same as the
+  // protocol having recorded it: a meta-transaction that reverts on chain comes
+  // back through the same path as one that succeeded. Without a read-back the
+  // watchdog would delete the buyer's only signature, write down that the
+  // dispute was raised, and never try again — so this cannot be optional.
+  if (typeof confirm !== "function") {
+    throw new Error("a watchdog needs a confirm() that reads back what the relay actually did");
+  }
+
   async function step(record) {
     const result = { exchangeId: record.exchangeId, action: ACTIONS.NONE, reason: null, relayed: false };
 
@@ -46,6 +57,17 @@ export function createWatchdog({
     });
     Object.assign(result, { action, reason, dueAt });
 
+    // The other half of "discard on use". An exchange that has finalised will
+    // never need these again, and a bearer instrument nobody needs is a
+    // liability with no upside — so they do not sit on disk indefinitely
+    // waiting for the one that spends them.
+    if (current.finalisedAt != null) {
+      for (const held of authorisations.list(current.exchangeId)) {
+        authorisations.discard(current.exchangeId, held);
+        log(`· discarded the ${held} authorisation: exchange ${current.exchangeId} is finalised`);
+      }
+    }
+
     if (action === ACTIONS.NONE) return result;
 
     if (!authorisations.has(current.exchangeId, action)) {
@@ -59,9 +81,14 @@ export function createWatchdog({
     const stored = authorisations.load(current.exchangeId, action);
     await relay(stored);
 
-    // Discarded only after the relay resolves. A failure above leaves the
-    // authorisation in place and the record untouched, so the next sweep
-    // retries rather than losing the protection.
+    // The protocol is asked whether it happened, rather than the relayer being
+    // taken at its word. A revert throws here, which leaves the authorisation
+    // in place and the record untouched, so the next sweep retries with the
+    // window still open instead of recording a raise that does not exist.
+    await confirm(stored);
+
+    // Discarded only once the action is known to have landed. Doing it any
+    // earlier trades the buyer's protection for the appearance of success.
     authorisations.discard(current.exchangeId, action);
 
     const at = now();
@@ -77,6 +104,15 @@ export function createWatchdog({
 
   async function sweep() {
     const results = [];
+
+    // Reported before anything else. A record that cannot be read is an
+    // exchange nobody is watching, and that is worth more to an operator than
+    // anything the readable ones have to say.
+    for (const exchangeId of exchanges.unreadable?.() ?? []) {
+      log(`⚠ exchange ${exchangeId} has an unreadable record and is unprotected`);
+      results.push({ exchangeId, action: ACTIONS.NONE, relayed: false, unreadable: true });
+    }
+
     for (const record of exchanges.all()) {
       try {
         results.push(await step(record));
