@@ -25,6 +25,50 @@ another configuration it provisions that one from scratch. It is the first thing
 relayer end to end, because the seller's account is created **gaslessly**, from a wallet holding no
 native currency at all.
 
+## Creating and completing an exchange
+
+Two commands move money, and they are the only two here that do:
+
+```
+npm run seed -- --tracker <trackerId> --tracking-number <trackingNumber>
+npm run confirm -- <exchangeId>
+```
+
+⭐ **Both plan and stop unless `--execute` is passed.** Run as above, each performs every read and
+every guard, prints exactly what it would do — for `seed` the offer terms, the periods and the price
+at the token's own decimals; for `confirm` the exchange, its state and what completing it pays — and
+then stops before anything is signed. Nothing is submitted, so nothing can be undone. `--execute` is
+what makes either one real, and it means the same thing in both:
+
+```
+npm run seed -- --tracker <trackerId> --tracking-number <trackingNumber> --execute
+npm run confirm -- <exchangeId> --execute
+```
+
+⚠️ **`seed --execute` escrows the buyer's money.** One relayed meta-transaction creates the offer,
+commits to it and redeems it: the price leaves the buyer's wallet at the commit, and there is no
+buyer-side cancel after the redeem — the money leaves escrow when the buyer confirms receipt, when a
+raised dispute is resolved, or when the window lapses, which pays the seller. The same run then
+captures the buyer's two pre-signed authorisations, `raiseDispute` and `escalateDispute`, and writes
+the record the watchdog sweeps. They cannot be signed any earlier, because the exchange id they are
+scoped to does not exist until the purchase is mined, and an exchange without them is unprotected —
+which the script says out loud.
+
+It also refuses to seed one parcel twice: a tracker already named by an unfinalised exchange is
+rejected rather than quietly escrowing a second lot of the buyer's money for one delivery. `--force`
+overrides that, deliberately and loudly.
+
+⚠️ **`confirm --execute` pays the seller.** It completes the exchange, the escrow is released
+immediately, and it cannot be reversed. It is the buyer's decision and nothing else's: no tracking
+event may reach it, because tracking proves arrival and not condition. It refuses on an exchange that
+does not exist, is already finalised, has not been redeemed, or is disputed — completing a disputed
+exchange reverts, and that is the ordinary case where the watchdog raised a dispute and the parcel
+then turned up.
+
+`npm run provision` and `npm run register` keep the opposite default deliberately: they do the work,
+and offer `--dry-run` for a report. An allowance can be re-granted and a tracker can be
+re-registered, so neither needs the stronger guard.
+
 ## Pinned versions
 
 | Package | Version | Why this one |
