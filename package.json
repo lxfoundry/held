@@ -17,7 +17,8 @@
     "register": "node scripts/register-parcel.mjs",
     "fetch": "node scripts/fetch-parcel.mjs",
     "watchdog": "node scripts/watchdog.mjs",
-    "seed": "node scripts/seed-exchange.mjs"
+    "seed": "node scripts/seed-exchange.mjs",
+    "confirm": "node scripts/confirm-receipt.mjs"
   },
   "dependencies": {
     "@bosonprotocol/core-sdk": "1.48.1-alpha.2",
