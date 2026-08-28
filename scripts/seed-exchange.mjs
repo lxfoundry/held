@@ -243,6 +243,67 @@ async function protect({
   return captured;
 }
 
+// ⭐ What is already on disk for this exchange, and — the part that matters —
+// whether adopting would be resuming this script's own interrupted work rather
+// than overwriting somebody's.
+//
+// `protect()` above writes the record before it signs anything, deliberately,
+// so the failure it is arranged to survive leaves a *correct* record with an
+// empty authorisation list and no instruments on disk. That is the exact state
+// the recovery command printed at the bottom of this file is for, so the guard
+// has to accept it: a refusal there is a live exchange left unguarded by an
+// operator who did as they were told.
+//
+// The signature is narrow on purpose — no instrument held, an authorisation
+// list that is present and empty, and the same tracker the record already
+// names. Anything else is somebody's work: a populated list or a held
+// instrument means protecting got further than this, and a *different* tracker
+// is the case that matters most, because the tracker is not a chain fact,
+// nothing merges it back, and the record is the only copy of it.
+//
+// Throws only what `exchanges.get` throws for a store it cannot read at all; a
+// record that exists and cannot be parsed comes back as `unreadable`, carrying
+// the message that names the file.
+function existingProtection(exchangeId, parcelTrackerId) {
+  const held = authorisations.list(exchangeId);
+  let record = null;
+  let unreadable = null;
+  try {
+    record = exchanges.get(exchangeId);
+  } catch (err) {
+    // A record that exists and cannot be parsed is still a record: overwriting
+    // it silently would throw away the only copy of what it named.
+    if (!(err instanceof CorruptRecordError)) throw err;
+    unreadable = err.message;
+  }
+  const resumable =
+    record != null &&
+    held.length === 0 &&
+    Array.isArray(record.authorisations) &&
+    record.authorisations.length === 0 &&
+    record.trackerId === parcelTrackerId;
+  return { held, record, unreadable, resumable };
+}
+
+// Whether the command this file prints for a given exchange has to carry
+// --force to be a command that works. An operator following a printed line
+// verbatim is the whole point of printing it, so the line is built from what
+// the guard would actually make of the state on disk rather than from a guess
+// about which failure happened.
+function forceNeededToAdopt(exchangeId, parcelTrackerId) {
+  try {
+    const { held, record, unreadable, resumable } = existingProtection(exchangeId, parcelTrackerId);
+    if (resumable) return false;
+    return held.length > 0 || record != null || unreadable != null;
+  } catch {
+    // The store itself could not be read. Adopting will say so and stop before
+    // it signs anything, and no flag changes that — but this is not the place
+    // to raise it: this runs inside a failure report that already has something
+    // more urgent to say.
+    return false;
+  }
+}
+
 // ⭐ Reads what the offer actually says, and refuses a period that did not
 // arrive. getOffer does not revert on an offer the node cannot see yet: it
 // returns a perfectly truthy result with `exists: false` and every duration
@@ -334,37 +395,59 @@ if (adopt) {
   // the chain facts back, but the tracker is not a chain fact and does not come
   // back — a live exchange re-pointed at another parcel's evidence stands the
   // watchdog down while its own window lapses in the seller's favour.
-  const held = authorisations.list(exchangeId);
-  let record = null;
-  let recordUnreadable = false;
+  //
+  // ⭐ Except for the one state this script itself produces. A correct record
+  // with nothing signed against it is a half-finished `protect()`, and finishing
+  // it is what adopting is for, so it is not an overwrite and must not be
+  // refused as one — see `existingProtection` above.
+  let existing;
   try {
-    record = exchanges.get(exchangeId);
+    existing = existingProtection(exchangeId, trackerId);
   } catch (err) {
-    // A record that exists and cannot be parsed is still a record: overwriting
-    // it silently would throw away the only copy of what it named.
-    if (!(err instanceof CorruptRecordError)) {
-      console.error(`✗ ${err.message}`);
-      console.error(`  ${exchanges.dir} could not be read, so what exchange ${exchangeId} already has is unknown`);
-      console.error("  nothing was signed and nothing was written");
-      process.exit(1);
-    }
-    recordUnreadable = true;
+    console.error(`✗ ${err.message}`);
+    console.error(`  ${exchanges.dir} could not be read, so what exchange ${exchangeId} already has is unknown`);
+    console.error("  nothing was signed and nothing was written");
+    process.exit(1);
+  }
+  const { held, record, unreadable, resumable } = existing;
+
+  if (resumable) {
+    ok(`exchange ${exchangeId} has a record naming tracker ${trackerId} and nothing signed against it`);
+    info("this is a protect() that did not finish — adopting completes it rather than replacing anything");
   }
 
-  const known = [
-    held.length ? `the ${held.join(" and ")} authorisation${held.length > 1 ? "s" : ""}` : null,
-    recordUnreadable
-      ? "a record that cannot be read"
-      : record
-        ? `a record naming tracker ${record.trackerId}`
-        : null,
-  ].filter(Boolean);
+  const known = resumable
+    ? []
+    : [
+        held.length ? `the ${held.join(" and ")} authorisation${held.length > 1 ? "s" : ""}` : null,
+        unreadable
+          ? "a record that cannot be read"
+          : record
+            ? `a record naming tracker ${record.trackerId}`
+            : null,
+      ].filter(Boolean);
   if (known.length && !force) {
     console.error(`✗ exchange ${exchangeId} already has ${known.join(" and ")}`);
-    if (held.length) console.error("  re-signing would replace instruments that are still valid");
-    if (record || recordUnreadable) {
+    if (held.length) {
+      console.error("  re-signing would replace instruments that are still valid, and the watchdog needs only");
+      console.error("  one of each — an exchange holding both is already guarded and needs nothing done to it");
+    }
+    if (unreadable) {
+      console.error(`  ${unreadable}`);
+      console.error("  read that file before doing anything else: the tracker it names is the only copy of");
+      console.error("  itself, and it is not on chain. Re-run with --force once you have it written down");
+    } else if (record) {
       console.error("  adopting rewrites the record rather than merging into it: the dispute, escalation and");
       console.error(`  finalisation fields reset to null and the tracker becomes ${trackerId}`);
+      if (record.trackerId !== trackerId) {
+        console.error(`  ⚠ and the record names a different parcel — tracker ${record.trackerId}, not ${trackerId}`);
+        console.error("  the dispute and finalisation fields come back on the next sweep; the tracker does not,");
+        console.error("  so this is the case where forcing destroys the only copy of something");
+        console.error(`  if ${record.trackerId} is this exchange's parcel, re-run with --tracker ${record.trackerId}`);
+        console.error(`  if ${trackerId} is, write ${record.trackerId} down first, then re-run with --force`);
+      } else {
+        console.error(`  the record already names this parcel — read it in ${exchanges.dir} before replacing it`);
+      }
     }
     console.error("  pass --force only if what is already there is known to be lost or wrong");
     process.exit(1);
@@ -379,11 +462,27 @@ if (adopt) {
   // accidental second exchange for one parcel — which is exactly what adopt
   // exists to bring under guard. Refusing would leave the buyer's money
   // unwatched in order to protect a lookup.
+  //
+  // ⚠️ And it says what the two ways out actually cost, rather than leaving a
+  // verb to do the work. There is no command here that undoes an escrow: the
+  // only script that finalises an exchange is `confirm`, which pays the seller
+  // and cannot be reversed, so "clear the duplicate" read as an instruction
+  // pays twice for one parcel. Which exchange ends how is a decision, and this
+  // says so.
   const collision = exchanges.byTracker(trackerId);
   if (collision && collision.exchangeId !== exchangeId && collision.finalisedAt == null) {
     console.log(`⚠ tracker ${trackerId} is already held by unfinalised exchange ${collision.exchangeId}`);
     console.log("⚠ two unfinalised exchanges naming one tracker make the duplicate-purchase guard ambiguous:");
-    console.log("⚠ a later seed run may find either of them, so settle whichever is not this parcel");
+    console.log(`⚠ a later seed run may find either ${exchangeId} or ${collision.exchangeId}, whichever it reads first`);
+    console.log("⚠ the usual cause is a second escrow for one parcel, so one of the two is holding money that");
+    console.log("⚠ should come back to the buyer — and there is no command for that. What is available:");
+    console.log("⚠   · npm run confirm -- <exchangeId> --execute pays that exchange's seller immediately and");
+    console.log("⚠     cannot be reversed — it is for the exchange whose parcel actually arrived, and only that one");
+    console.log("⚠   · returning the buyer's money runs through a dispute: the watchdog raises one on the");
+    console.log("⚠     exchange's behalf as its window nears expiry, and nothing here resolves a dispute — the");
+    console.log("⚠     seller agrees a split or the dispute resolver decides");
+    console.log("⚠ leaving both alone is not the neutral option: a window that lapses pays the seller, and here");
+    console.log("⚠ that is twice for one parcel");
   }
 
   const redeemedAt = Number(onChain.voucher.redeemedDate) * MS;
@@ -775,9 +874,22 @@ try {
     console.error(`  exchange ${exchangeId}`);
     console.error("  this exchange is live and is not yet protected");
     console.error("  protect it — no transaction, only signing and recording — with:");
+    // ⚠️ Built from what is on disk, not from a guess about where this failed.
+    // `protect()` writes the record before either signature, so the ordinary
+    // failure leaves a record the adopt guard recognises as its own unfinished
+    // work and no flag is wanted; a failure between the two signatures leaves an
+    // instrument held, which that guard refuses without --force. A printed line
+    // its own guard rejects is how a live exchange stays unguarded — the
+    // operator does exactly as told, is refused, and reasonably declines to
+    // force past a warning about losing something.
+    const adoptForce = forceNeededToAdopt(exchangeId, trackerId) ? " --force" : "";
     console.error(
-      `    npm run seed -- --adopt ${exchangeId} --tracker ${trackerId} --tracking-number ${trackingNumber} --execute`
+      `    npm run seed -- --adopt ${exchangeId} --tracker ${trackerId} --tracking-number ${trackingNumber}${adoptForce} --execute`
     );
+    if (adoptForce) {
+      console.error("    --force is in that line because part of this run's own work is already on disk;");
+      console.error("    it will say what it is replacing before it does it");
+    }
     console.error("  do NOT simply re-run: that escrows the buyer's money a second time");
   } else if (receipt) {
     // ⚠️ A receipt is not a commit. The relayer's receipt carries no status

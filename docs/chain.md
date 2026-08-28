@@ -37,7 +37,7 @@ npm run confirm -- <exchangeId>
 ⭐ **Both plan and stop unless `--execute` is passed.** Run as above, each performs every read and
 every guard, prints exactly what it would do — for `seed` the offer terms, the periods and the price
 at the token's own decimals; for `confirm` the exchange, its state and what completing it pays — and
-then stops. **Nothing is submitted and no money moves, so nothing can be undone.** `--execute` is
+then stops. **Nothing is submitted and no money moves, so there is nothing to undo.** `--execute` is
 what makes either one real, and it means the same thing in both:
 
 ```
@@ -81,8 +81,7 @@ no local record and no authorisations — holding the buyer's money with nothing
 invisible to the watchdog, which sweeps records. `--adopt` reads that exchange back from the
 protocol, signs the two authorisations against it and writes the record, so the watchdog can see an
 exchange it previously could not. It never creates an offer, never commits and never escrows
-anything; `--execute` still gates the signing and the write, and the failure messages `seed` prints
-hand you the exact command.
+anything; `--execute` still gates the signing and the write.
 
 The tracker and tracking number are **required**, exactly as when seeding, and they are the operator
 supplying them from memory rather than the script reading them back: the tracker id is the only
@@ -92,15 +91,34 @@ It refuses, before signing anything, an exchange that does not exist on this con
 **committed by a different buyer** (ids are global and dense, so a mistyped one lands on a
 stranger's live exchange, where our authorisations would revert and the record would claim it is
 guarded), one that has not been redeemed, and one that is already finalised. It also refuses one
-that already has a record or held authorisations, naming which of the two it found — adopting
-rewrites the record rather than merging into it, so the dispute, escalation and finalisation fields
-reset and the tracker becomes the one on the command line. **`--force` overrides that refusal**, and
-is the flag to reach for when what is already there is known to be lost or wrong.
+that already has held authorisations, or a record naming a **different** tracker, naming which of the
+two it found — adopting rewrites the record rather than merging into it, so the dispute, escalation
+and finalisation fields reset and the tracker becomes the one on the command line. Those fields come
+back on the watchdog's next sweep, because the protocol is asked for them; **the tracker does not**,
+nothing on chain knows it, and the record is its only copy — which is what that refusal is really
+protecting. **`--force` overrides it**, and is the flag to reach for when what is already there is
+known to be lost or wrong. A record that exists and cannot be parsed refuses the same way, and names
+the file to go and read.
+
+⭐ **One state is not an overwrite, and is not refused: a record with an empty authorisation list, no
+instruments held, and the same tracker.** That is exactly what a `seed` run that died between writing
+the record and signing leaves behind — the record is written first so that failure is visible rather
+than invisible — and finishing it is what `--adopt` is for. So the recovery command `seed` prints is
+one `--adopt` accepts, and it carries `--force` itself in the case that needs it: a run that failed
+*between* the two signatures leaves one instrument on disk, which is a real overwrite.
 
 A tracker already held by another unfinalised exchange is a **warning** here rather than a refusal,
 unlike on the seed path: adopting escrows nothing, and the usual cause is a second exchange for one
-parcel that now needs guarding. Settle whichever of the two is not this parcel — while both are
-open, the duplicate-purchase lookup can find either.
+parcel that now needs guarding. While both are open the duplicate-purchase lookup can find either,
+and nothing here disambiguates them for you.
+
+⚠️ **No command undoes an escrow.** The only script that finalises an exchange is `confirm`, and it
+finalises by *paying the seller* — so it belongs to the exchange whose parcel actually arrived, and
+to that one only. Getting the buyer's money back on the other runs through a **dispute**: the
+watchdog raises one on that exchange's behalf as its window nears expiry, and nothing in this
+repository resolves a dispute, so it ends with the seller agreeing a split or the dispute resolver
+deciding. Which exchange takes which route is a decision, not a command. Leaving both alone is not
+the neutral option — a lapsed window pays the seller, and here that is twice for one parcel.
 
 ⚠️ **`confirm --execute` pays the seller.** It completes the exchange, the escrow is released
 immediately, and it cannot be reversed. It is the buyer's decision and nothing else's: no tracking
