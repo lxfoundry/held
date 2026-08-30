@@ -1,9 +1,19 @@
+
+
 # Held
+
 ### *Buy from a stranger. Keep your money until it's sorted.*
+
+Consumer protection that doesn't need a platform.
+
+---
 
 ## 1. Context
 
-TBD
+Held is a buyer-side app for peer-to-peer marketplace purchases, built on
+[Boson Protocol](https://bosonprotocol.io) and deployed on Base.
+
+It is being built for the **EasyA hackathon at the UK Parliament on Friday 4 September 2026**.
 
 ---
 
@@ -11,31 +21,34 @@ TBD
 
 ### The everyday version
 
-You find something on Facebook Marketplace, Gumtree, Vinted. It's exactly what you want. But the seller is 200 miles away, so you can't collect in person, and you have no reason to trust them.
+You find something on a peer-to-peer marketplace listing. It's exactly what you want. But the seller
+is 200 miles away, so you can't collect in person, and you have no reason to trust them.
 
 Your options today:
 
 - **Send the money and hope.** If they vanish, it's gone.
 - **Walk away.** Which is what most people do.
 
-That is a real market failing to clear because two strangers can't trust each other over £200.
+That is a real market failing to clear because two strangers can't trust each other over Â£200.
 
-### The version that lands with policymakers
+### When it does go wrong
 
-If it *does* go wrong, recourse is effectively unavailable:
+Recourse at this value is effectively unavailable:
 
-| Route | Why it fails at £200 |
-|---|---|
+| Route | Why it fails at Â£200 |
+| --- | --- |
 | Small claims court | Costs money, takes months. Economically irrational at this value. |
 | Chargeback | Doesn't exist outside card rails. Bank transfer is final. |
-| Platform arbitration | Decided in secret, no published reasoning, no appeal — and the platform has a commercial incentive to retain the seller. |
+| Platform arbitration | Decided in secret, no published reasoning, no appeal â€” and the platform has a commercial incentive to retain the seller. |
 | Police / Action Fraud | Volume vastly exceeds capacity for low-value cases. |
 
 **The practical answer for most people is: you eat it.**
 
-This is an **access-to-justice gap**. The cost of obtaining justice exceeds the value of the dispute, so the dispute goes unresolved. Policymakers already have furniture for this idea — ombudsman schemes, alternative dispute resolution, the small claims track.
+This is an access-to-justice gap: the cost of obtaining justice exceeds the value of the dispute, so
+the dispute goes unresolved. The same gap that ombudsman schemes, alternative dispute resolution and
+the small claims track exist to close at higher values.
 
-**We are not replacing courts. We are serving the cases courts were never going to reach.**
+**Held does not replace courts. It serves the cases courts were never going to reach.**
 
 ---
 
@@ -43,140 +56,212 @@ This is an **access-to-justice gap**. The cost of obtaining justice exceeds the 
 
 ### One sentence
 
-> **Buy from a stranger online, and your money doesn't leave until the parcel actually arrives. If it doesn't, you get it back — automatically. And if it arrives broken, something reads the evidence and helps you settle, in the open.**
+> **Buy from a stranger online, and your money doesn't leave until the parcel actually arrives. If it
+> doesn't, you get it back. And if it arrives broken, something reads the evidence and helps you
+> settle, in the open.**
 
-### What it actually is
+### What it is
 
-A buyer-side app for peer-to-peer marketplace purchases that gives you:
+1. **Escrow without a platform** â€” your money is committed but not sent, held by a smart contract
+   neither party controls
+2. **Delivery evidence as the trigger** â€” real courier tracking releases the money or triggers a
+   refund, with no human in the loop
+3. **An AI that does everything except decide** â€” it mediates when the parcel arrives but something's
+   wrong, and prepares the case when a human is genuinely needed
 
-1. **Escrow without a platform** — your money is committed but not sent, held by a smart contract neither party controls
-2. **Delivery evidence as the trigger** — real courier tracking releases the money or refunds it, with no human in the loop
-3. **An AI that does everything except decide** — mediates when the parcel arrives but something's wrong, and prepares the case when a human is genuinely needed
+### What it is not
 
-### What it is *not*
+- âŒ **Not a marketplace.** No discovery, search or matching. You bring your own listing.
+- âŒ **Not a payments product.** The money movement is the least interesting part.
+- âŒ **Not an AI judge.** See Â§5.
+- âŒ **Not for agents doing the buying.** The buyer is a human. Agent-initiated purchase drags in
+  mandate, allowance and spending-constraint questions this product deliberately does not answer.
+- âŒ **Not a finished product.** It is a proposition with a working prototype, and it says so.
 
-- ❌ Not a marketplace. We don't do discovery, search or matching. You bring your own listing.
-- ❌ Not a payments product. The money movement is the least interesting part.
-- ❌ Not an AI judge. See §5.
-- ❌ Not for agents doing the buying. **The buyer is a human.** Agent-initiated purchase drags in mandate, allowance and spending-constraint questions this product deliberately does not answer.
-- ❌ Not a finished product. It is a **proposition with a working prototype** — and we say so.
+### 3a. The flow â€” and why the watchdog is mandatory
 
-### 3a. The simplified flow — and why the watchdog is mandatory
+Commit and redeem are collapsed into a single atomic action, using the atomic create-commit-redeem
+path (BPIP-13).
 
-**We collapse commit and redeem into a single atomic action.** Protocol support exists: BPIP-13 provides atomic create-commit-redeem.
-
-This matters because Boson's native two-step flow does not mean what a buyer would assume:
+This matters because the protocol's native two-step flow does not mean what a buyer would assume:
 
 | Protocol action | What it actually does |
-|---|---|
+| --- | --- |
 | **Commit** | Buyer's funds are escrowed; buyer receives a tradeable rNFT |
-| **Redeem** | ⚠️ **Not "it arrived."** The buyer exercises the right to receive the item — the rNFT is burned, the **seller is triggered to fulfil**, and the **dispute period opens**. |
-| **Complete** | Buyer confirms they received it and are satisfied → seller paid immediately |
-| **Dispute period expires** | ⚠️ **Inaction is treated as success. The seller is paid in full.** |
+| **Redeem** | âš ï¸ **Not "it arrived."** The buyer exercises the right to receive the item â€” the rNFT is burned, the seller is triggered to fulfil, and the dispute period opens. |
+| **Complete** | Buyer confirms they received it and are satisfied â†’ seller paid immediately |
+| **Dispute period expires** | âš ï¸ **Inaction is treated as success. The seller is paid in full.** |
 
-Collapsing commit and redeem means **the buyer never encounters the concepts of voucher, rNFT or redemption at all.** They reserve an item; the seller is told to ship; the clock starts. One action, no vocabulary.
+Collapsing commit and redeem means the buyer never encounters the concepts of voucher, rNFT or
+redemption at all. They reserve an item, the seller is told to ship, the clock starts. One action, no
+vocabulary.
 
-*Deliberately out of scope:* the rNFT is tradeable between commit and redeem, so a committed position can be sold on. Real capability, wrong story for this audience — the atomic flow forecloses it and that is fine.
+*Out of scope by design:* the rNFT is tradeable between commit and redeem, so a committed position
+could be sold on. The atomic flow forecloses that, deliberately.
 
-#### ⭐ The consequence: inaction favours the seller, so the system must act for the buyer
+#### The consequence: inaction favours the seller, so the system must act for the buyer
 
-This is not a detail. Read the table again — **if the parcel never arrives and the buyer does nothing, the buyer pays in full.** The same is true one level down: if a dispute is raised and the resolution period lapses with no action, the seller is paid.
+Read the table again â€” **if the parcel never arrives and the buyer does nothing, the buyer pays in
+full.** The same is true one level down: if a dispute is raised and the resolution period lapses with
+no action, the seller is paid.
 
 Most consumer protection fails in exactly this way. People miss deadlines.
 
-**So the oracle adapter is not only a settlement trigger — it is a watchdog.** It monitors tracking and, if the parcel has not been delivered as the window approaches expiry, **it raises the dispute on the buyer's behalf, before the door closes.**
+**So the oracle adapter is not only a settlement trigger â€” it is a watchdog.** It monitors tracking
+and, if the parcel has not been delivered as the window approaches expiry, it raises the dispute on
+the buyer's behalf before the door closes.
 
 > **You don't have to watch it. If it doesn't turn up, we raise it for you.**
-
-That is a genuine product requirement, a genuine consumer-protection insight, and one of the strongest lines available for the room.
-
-### Positioning
-
-**Framing (DECIDED):** *Consumer protection that doesn't need a platform.*
-
-Two secondary framings available for different perpectives, supported by the same artifact:
-
-*Proportionate redress for low-value trade — the access-to-justice gap*
-
-OR
-
-*The trust layer for commerce between parties who have no relationship*
 
 ---
 
 ## 4. The escalation ladder
 
-**This is the spine of the product.** Everything else is detail.
-
-Each rung is cheaper than the one below it. Most cases never descend.
+This is the spine of the product. Each rung is cheaper than the one below it, and most cases never
+descend.
 
 | # | Rung | Who acts | Cost |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | **1** | **It arrives. Nothing happens.** Tracking confirms delivery; the buyer confirms, or the window simply passes. Seller paid. | Nobody | Zero |
-| **2** | **It doesn't arrive — and the system notices.** The watchdog sees non-delivery and raises the dispute before the window closes. The tracking evidence is unambiguous, so the seller agrees immediately. Full refund. | Software acts; seller accepts | Near-zero |
-| **3** | **It arrives, but something's wrong.** Contested, and tracking can't settle it. AI mediator reads the evidence and proposes a split both sides would rationally accept. They agree. Settled on-chain. | AI proposes, humans accept | Near-zero |
-| **4** | **They can't agree.** AI assembles the complete case file; a human dispute resolver makes the call. Reasoning published. Appeal exists. | AI prepares, human decides | Real, but rare |
+| **2** | **It doesn't arrive â€” and the system notices.** The watchdog sees non-delivery and raises the dispute before the window closes. The tracking evidence is unambiguous, so the seller agrees immediately. Full refund. | Software acts; seller accepts | Near-zero |
+| **3** | **It arrives, but something's wrong.** Contested, and tracking can't settle it. The AI mediator reads the evidence and proposes a split both sides would rationally accept. They agree. Settled on-chain. | AI proposes, humans accept | Near-zero |
+| **4** | **They can't agree.** The AI assembles the complete case file; a human dispute resolver makes the call. Reasoning published. Appeal exists. | AI prepares, human decides | Real, but rare |
 
-> ⚠️ **Rung 2 is not a magic automatic refund**, and it is important not to describe it as one. Boson has no path where non-delivery refunds a passive buyer — inaction pays the seller. Rung 2 is *the watchdog raising a dispute for you, on evidence so clear the seller has no rational reason to contest it.* That is honest to the protocol, and a better story: the system is on your side while you are not looking.
+> âš ï¸ **Rung 2 is not an automatic refund**, and it is important not to describe it as one. The
+> protocol has no path where non-delivery refunds a passive buyer â€” inaction pays the seller. Rung 2
+> is the watchdog raising a dispute for you, on evidence so clear the seller has no rational reason
+> to contest it.
 
-**The line that does the work:**
+**Expensive human judgment is reserved for the cases that actually need it.**
 
-> **Expensive human judgment is reserved for the cases that actually need it.**
-
-### Why the ladder matters more than any single feature
-
-- It is **proportionate** — the response scales with the difficulty of the case
-- It is **honest** — we're not claiming to automate justice, we're claiming to automate everything around it
-- It **ends in agreement, not a verdict**, at the rung where most volume sits
-- It maps cleanly onto how UK redress already works, which makes it legible to the room
+The ladder is proportionate â€” the response scales with the difficulty of the case. It is honest: this
+does not automate justice, it automates everything around it. And at the rung where most volume sits,
+it ends in agreement rather than a verdict.
 
 ---
 
 ## 5. The AI's role, precisely bounded
 
-### The principle
-
 > **The AI does everything except decide.**
 
-At rung 3 it compresses the work to zero — the parties agree and nobody escalates. At rung 4 it compresses the human's job to the single irreducible act: deciding.
+At rung 3 it compresses the work to zero â€” the parties agree and nobody escalates. At rung 4 it
+compresses the human's job to the single irreducible act: deciding.
 
-### The analogy to use out loud
+The Financial Ombudsman Service has **case handlers** who gather evidence and assemble the file, and
+**ombudsmen** who decide. Held automates the case handler, not the ombudsman.
 
-> The Financial Ombudsman Service has **case handlers** who gather evidence and assemble the file, and **ombudsmen** who decide.
->
-> **We've automated the case handler, not the ombudsman.**
+### The bounded action space
 
-This is legible to every MP in the room, demonstrates literacy in how UK redress actually works, and pre-empts the AI objection before anyone raises it.
-
-### The bounded action space — the strongest defensibility argument we have
-
-Boson's mutual resolution is a **split of the escrowed pot**. So:
+The protocol's mutual resolution is a **split of the escrowed pot**. So:
 
 > **The AI cannot invent a remedy. It proposes a percentage.**
 
-- Action space: **one number, 0–100%**
+- Action space: **one number, 0â€“100%**
 - Over a pot **both parties already agreed to lock**
 - With remedies **agreed up front**
 - Which **either party is free to decline**
 
-If anyone in that room pushes on the AI, that is the sentence that ends the challenge. It is also simply true to the protocol.
+This is a property of the architecture, not of a prompt: the model-driven components have no
+chain-calling tools at all, and no code path lets an AI-proposed split settle without explicit human
+acceptance.
 
 ### The two behaviours
 
-Both sit on **one shared component**.
+Both sit on one shared evidence-assembly component.
 
-**Rung 3 — Mediator**
-- Reads: tracking history, photos, the message thread, the original offer terms
+**Rung 3 â€” Mediator**
+
+- Reads tracking history, photos, the message thread, the original offer terms
 - Identifies what's missing and requests it
 - Proposes a split, **with its reasoning shown**
 - Either party may accept or decline. Acceptance settles on-chain.
 
-**Rung 4 — Clerk**
-- Assembles the complete case file: evidence, timeline, both parties' positions, what was requested and what was provided, what remains contested
-- Chases missing evidence from both sides *(production: email/messaging. Demo: described, not built)*
+**Rung 4 â€” Clerk**
+
+- Assembles the complete case file: evidence, timeline, both parties' positions, what was requested
+  and what was provided, what remains contested
+- Chases missing evidence from both sides *(production: email/messaging; not built in the prototype)*
 - Hands a finished file to a human decider
 - **Does not recommend an outcome**
 
 ---
 
+## 6. Architecture
 
+| Layer | Choice |
+| --- | --- |
+| Escrow and dispute resolution | Boson Protocol E-commerce Module, via `@bosonprotocol/core-sdk` |
+| Chain | Base (Base Sepolia for testnet) |
+| Exchange token | ERC-20 (USDC). Native currency is unusable â€” a meta-transaction cannot forward `msg.value`. |
+| Buyer transactions | Signatures relayed as meta-transactions; the buyer holds no native currency |
+| Delivery oracle | Ship24, webhook push per registered tracker |
+
+**The aggregator is a trust hop, and the system says so.** Tracking evidence is Ship24's read of the
+carrier, not an attestation signed by the carrier. **Tracking proves arrival, not condition** â€” which
+is exactly why the AI half exists.
+
+Repository layout:
+
+- `src/` â€” runtime code. `src/receiver.mjs` is the one process exposed to the internet and stays
+  dependency-free.
+- `scripts/` â€” provisioning and capture, run by hand. Never a runtime path.
+- `test/` â€” `node --test`, no framework
+- `fixtures/` â€” captured tracking data, scrubbed of personal location data at capture time
+- `docs/specs/` â€” what the system is and how it behaves
+- `docs/plans/` â€” how a piece of it gets built
+
+Longer form: [`docs/chain.md`](docs/chain.md), [`docs/receiver.md`](docs/receiver.md),
+[`docs/specs/offer-model.md`](docs/specs/offer-model.md).
+
+---
+
+## 7. Scope
+
+**Buyer view only.** The seller side is scripted for the demo, and that is stated plainly rather than
+hidden.
+
+Deliberately not built: seller onboarding, discovery or matching, wallet onboarding, multi-chain
+support, agent-initiated purchase.
+
+---
+
+## 8. Running it
+
+Requires Node (see `.nvmrc`).
+
+```bash
+npm install
+cp .env.example .env     # fill in; .env is gitignored and holds every secret
+npm run chain-check      # verifies the chain path end to end, read-only, needs no key
+npm run provision        # idempotent; sets up the accounts chain-check looks for
+npm test
+```
+
+`npm run seed` and `npm run confirm` plan and stop by default â€” neither signs nor submits anything
+without an explicit `-- --execute`.
+
+The webhook receiver is containerised (`Dockerfile`) and deploys to Fly (`fly.toml`). It requires a
+public HTTPS origin, since Ship24 pushes events to it, and it refuses to start without a tracker
+allowlist.
+
+**No secrets in any commit.** API keys, wallet mnemonics, private keys and provider credentials live
+in `.env` only. On-chain addresses and public tracking numbers are fine.
+
+---
+
+## 9. AI models used
+
+<!-- TODO before submission: EasyA requires documenting which LLMs were used, for the product and
+     for development. Fill this in once the mediator model is settled â€” the .env slot MEDIATOR_MODEL
+     is still empty. -->
+
+*To be documented.*
+
+---
+
+## 10. Licence
+
+<!-- TODO: EasyA requires the submission to be open source. Add a LICENSE file (MIT or Apache-2.0)
+     and name it here. There is no LICENSE file in the repo at the moment. -->
+
+*To be added.*
