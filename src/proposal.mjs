@@ -83,6 +83,15 @@ export function checkProposal(result, bundle) {
     for (const req of result.requests) {
       const branches = req.wouldChange ?? [];
       if (branches.length < 2) return fail("a request must name at least two branches");
+      // ⚠️ Bounded here because the schema cannot: the API rejects
+      // minimum/maximum on a number. A branch split is a percentage of the same
+      // pot as every other number in this object, and it reaches the case
+      // record through the concluded path's `assumed`, so it is checked where
+      // every other percentage is.
+      for (const branch of branches) {
+        const bad = checkPercent(branch.split, "a request branch's split");
+        if (bad) return fail(bad);
+      }
       // A request whose branches agree is a question whose answer changes
       // nothing, and it spends a party's effort to look diligent.
       if (new Set(branches.map((b) => b.split)).size === 1) {

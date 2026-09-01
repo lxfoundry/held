@@ -1,7 +1,8 @@
 {
   "exchangeId": "238",
   "photos": [
-    { "id": "inner", "path": "fixtures/case/photos/inner.jpg", "media_type": "image/jpeg" }
+    { "id": "inner", "path": "fixtures/case/photos/inner.jpg", "media_type": "image/jpeg" },
+    { "id": "carton", "path": "fixtures/case/photos/carton-crushed.jpg", "media_type": "image/jpeg" }
   ],
   "messages": [
     { "from": "buyer",  "at": 1787681520000, "text": "Hi - is the box in good condition? For a retired set that's most of what I'm paying for." },
