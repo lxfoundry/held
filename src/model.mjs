@@ -8,9 +8,20 @@
 
 export const MEDIATOR_MODEL_DEFAULT = "claude-opus-5";
 
+// One type for every way a call can come back unusable, so the mediator can
+// retry it on the same footing as a response that failed its bounds. A raw
+// SyntaxError escaping instead would fail the case on the first attempt, and
+// a truncated response is the likeliest malformation of the two.
+export class UnusableModelResponse extends Error {
+  constructor(detail) {
+    super(`the mediator returned an unusable result: ${detail}`);
+    this.name = "UnusableModelResponse";
+  }
+}
+
 // The schema is the action space. There is no field for a remedy that is not a
 // percentage, so a wider remedy is unrepresentable rather than rejected.
-const FORMAT = {
+export const FORMAT = {
   type: "json_schema",
   schema: {
     type: "object",
@@ -76,8 +87,14 @@ const FORMAT = {
 // to state which model produced a proposal, and the answer cannot travel back
 // on the result itself: checkProposal's field allowlist refuses any key outside
 // the schema, so a result carrying `model` is rejected as an unknown field.
+//
+// ⚠️ MEDIATOR_MODEL arrives as an argument, never off process.env. loadEnv
+// reads .env without mutating the environment, so a process.env read here would
+// never see the configured value and would bypass loadEnv's `only` allowlist —
+// which exists so a component that cannot move funds does not hold the means
+// to. The composition root supplies it.
 export function resolveModel(model = null) {
-  return model ?? process.env.MEDIATOR_MODEL ?? MEDIATOR_MODEL_DEFAULT;
+  return model ?? MEDIATOR_MODEL_DEFAULT;
 }
 
 export function buildRequest({ bundle, system, photos = [], final = false, model = null }) {
@@ -118,8 +135,29 @@ export function buildRequest({ bundle, system, photos = [], final = false, model
 export async function callModel({ client, bundle, system, photos = [], final = false, model = null }) {
   const request = buildRequest({ bundle, system, photos, final, model });
   const response = await client.messages.create(request);
+
+  // ⚠️ stop_reason before content, because both of these arrive as HTTP 200
+  // and neither says anything useful once it has reached JSON.parse. Adaptive
+  // thinking shares the token budget with several base64 photographs, so a
+  // truncation here is an ordinary outcome rather than an edge case; a refusal
+  // may carry no text block at all. stop_details is populated only on a
+  // refusal, so it is read only there.
+  if (response.stop_reason === "refusal") {
+    const category = response.stop_details?.category ?? "no category given";
+    throw new UnusableModelResponse(`the model declined the case (${category})`);
+  }
+  if (response.stop_reason === "max_tokens") {
+    throw new UnusableModelResponse("the response was truncated at max_tokens");
+  }
+
   // ⚠️ Text blocks only. Adaptive thinking puts thinking blocks in the same
   // array, and concatenating everything would hand JSON.parse the reasoning.
-  const text = response.content.filter((b) => b.type === "text").map((b) => b.text).join("");
-  return { model: request.model, result: JSON.parse(text) };
+  const text = (response.content ?? []).filter((b) => b.type === "text").map((b) => b.text).join("");
+  if (!text) throw new UnusableModelResponse("the response carried no text block");
+
+  try {
+    return { model: request.model, result: JSON.parse(text) };
+  } catch (err) {
+    throw new UnusableModelResponse(`the response was not valid JSON: ${err.message}`);
+  }
 }

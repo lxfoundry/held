@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildRequest, callModel, MEDIATOR_MODEL_DEFAULT } from "../src/model.mjs";
+import { buildRequest, callModel, MEDIATOR_MODEL_DEFAULT, UnusableModelResponse } from "../src/model.mjs";
 
 const bundle = { exchangeId: "241", hash: "abc", items: [{ id: "pho-1", kind: "photo", provenance: "buyer", visibility: "shared", authored: false, content: { path: "p.jpg", sha256: "aa" } }] };
 
@@ -62,6 +62,56 @@ test("thinking blocks in the response are not parsed as output", async () => {
       ] }),
     },
   };
+  const { result } = await callModel({ client, bundle, system: "s", photos: [] });
+  assert.equal(result.buyerPercent, 20);
+});
+
+const responding = (response) => ({ messages: { create: async () => response } });
+const ok = '{"status":"proposal","buyerPercent":20}';
+
+// ⚠️ stop_reason is read before the content. Adaptive thinking shares the token
+// budget with several base64 photographs, so a truncated response is a real
+// outcome here — and it arrives as HTTP 200 with JSON cut off mid-object.
+test("a response truncated at max_tokens is refused, not parsed", async () => {
+  const client = responding({ stop_reason: "max_tokens", content: [{ type: "text", text: '{"status":"pro' }] });
+  await assert.rejects(
+    callModel({ client, bundle, system: "s", photos: [] }),
+    (err) => err instanceof UnusableModelResponse && /truncated/.test(err.message),
+  );
+});
+
+// A safety refusal is HTTP 200 with a stop_reason and possibly no text block at
+// all, so JSON.parse("") would be the first thing to notice it.
+test("a refusal is reported as a refusal", async () => {
+  const client = responding({
+    stop_reason: "refusal",
+    stop_details: { type: "refusal", category: "cyber" },
+    content: [],
+  });
+  await assert.rejects(
+    callModel({ client, bundle, system: "s", photos: [] }),
+    (err) => err instanceof UnusableModelResponse && /declined/.test(err.message),
+  );
+});
+
+test("output that is not JSON is refused as an unusable response", async () => {
+  const client = responding({ stop_reason: "end_turn", content: [{ type: "text", text: "I think 20%." }] });
+  await assert.rejects(
+    callModel({ client, bundle, system: "s", photos: [] }),
+    (err) => err instanceof UnusableModelResponse && !(err instanceof SyntaxError),
+  );
+});
+
+test("a response with no text block at all is refused", async () => {
+  const client = responding({ stop_reason: "end_turn", content: [{ type: "thinking", thinking: "…" }] });
+  await assert.rejects(
+    callModel({ client, bundle, system: "s", photos: [] }),
+    UnusableModelResponse,
+  );
+});
+
+test("an ordinary completion still parses", async () => {
+  const client = responding({ stop_reason: "end_turn", content: [{ type: "text", text: ok }] });
   const { result } = await callModel({ client, bundle, system: "s", photos: [] });
   assert.equal(result.buyerPercent, 20);
 });

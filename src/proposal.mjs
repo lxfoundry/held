@@ -16,13 +16,32 @@ export const STATUS = Object.freeze({
 
 // The settlement-bearing surface. Listed rather than inferred so that a field
 // nobody planned for is a rejection instead of a silently wider action space.
-const FIELDS = {
+//
+// Exported so a test can hold this and the model's JSON schema against each
+// other: they are two descriptions of one action space, and two of those drift.
+export const FIELDS = {
   [STATUS.NEEDS_EVIDENCE]: ["status", "requests", "provisional", "findings"],
   [STATUS.PROPOSAL]: ["status", "buyerPercent", "reasoning", "findings"],
   [STATUS.CANNOT_SETTLE]: ["status", "reasoning", "findings"],
 };
 
-const INTERNAL = ["wouldChange", "provisional"];
+// Every field the schema offers, on any status. The schema describes one object
+// rather than three, so all of these are legal answers to any round.
+const SCHEMA_FIELDS = [...new Set(Object.values(FIELDS).flat())];
+
+// Carries nothing: no split, no request, no text. Distinguishing this from a
+// field with content in it is what separates "the model filled in a key it did
+// not need" from "the action space just got wider".
+function carriesNothing(value) {
+  if (value == null || value === "") return true;
+  if (Array.isArray(value)) return value.length === 0;
+  return typeof value === "object" && Object.keys(value).length === 0;
+}
+
+// `assumed` names the branch a concluded question fell back on, and a branch
+// carries its split — so it is the same leak as `wouldChange` wearing a
+// different name. It belongs to the record, not to what either party is shown.
+const INTERNAL = ["wouldChange", "provisional", "assumed"];
 
 const fail = (reason) => ({ ok: false, reason });
 
@@ -37,7 +56,16 @@ export function checkProposal(result, bundle) {
   if (!allowed) return fail(`unknown status ${result?.status}`);
 
   for (const key of Object.keys(result)) {
-    if (!allowed.includes(key)) return fail(`unknown field "${key}" for ${result.status}`);
+    if (allowed.includes(key)) continue;
+    // ⚠️ A field the schema offers but this status does not use is tolerated
+    // only while it carries nothing. A final round is told to return a proposal
+    // or cannot_settle while the schema still advertises `requests`, so an
+    // empty `requests: []` beside a proposal is a thoroughly ordinary answer —
+    // and refusing it spent the one retry and then failed the case over a key
+    // with nothing in it. The same field with content in it is refused, because
+    // that is the action space widening rather than a stray key.
+    if (SCHEMA_FIELDS.includes(key) && carriesNothing(result[key])) continue;
+    return fail(`unknown field "${key}" for ${result.status}`);
   }
 
   if (result.status === STATUS.PROPOSAL) {

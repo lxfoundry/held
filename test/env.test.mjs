@@ -8,10 +8,11 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { ROOT } from "../src/env.mjs";
 
 const SOURCE = fileURLToPath(new URL("../src/env.mjs", import.meta.url));
 
@@ -153,4 +154,22 @@ test("a missing .env is fine unless the caller requires the file", async () => {
     assert.deepEqual(loadEnv({ only: ["SHIP24_API_KEY"] }), {});
     assert.throws(() => loadEnv({ requireFile: true, only: ["SHIP24_API_KEY"] }), /Copy \.env\.example/);
   });
+});
+
+// ⭐ loadEnv exists so a component takes only the keys it is entitled to, and
+// deliberately does not mutate process.env — so a module that reads
+// process.env directly both bypasses the `only` allowlist and never sees a
+// value set in .env at all. It is one grep, and it is the whole enforcement.
+// Comments are stripped first: the rule is about what the code does, and a
+// module explaining why it does not read the environment would otherwise fail
+// its own check.
+const code = (src) =>
+  src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+
+test("only this module reads the environment directly", () => {
+  const dir = join(ROOT, "src");
+  const offenders = readdirSync(dir)
+    .filter((f) => f.endsWith(".mjs") && f !== "env.mjs")
+    .filter((f) => /process\s*\.\s*env/.test(code(readFileSync(join(dir, f), "utf8"))));
+  assert.deepEqual(offenders, [], "these modules bypass loadEnv and read the environment themselves");
 });
