@@ -61,17 +61,21 @@ export async function mediate({
     return { ...replayed, replayed: true };
   }
 
-  let result = await deps.call({ bundle, system, photos, final });
+  // ⚠️ The model name arrives beside the answer, never inside it. checkProposal
+  // refuses any key outside the schema, so a result carrying `model` would be
+  // rejected as an unknown field — which is why reading it off the result would
+  // record null for every case ever mediated.
+  let { model, result } = await deps.call({ bundle, system, photos, final });
   let check = checkProposal(result, bundle);
 
   if (!check.ok) {
     // One retry, then fail the case rather than present something ungrounded.
-    result = await deps.call({ bundle, system, photos, final });
+    ({ model, result } = await deps.call({ bundle, system, photos, final }));
     check = checkProposal(result, bundle);
     if (!check.ok) throw new Error(`the mediator returned an unusable result: ${check.reason}`);
   }
 
-  deps.recordings.save(bundle.hash, { model: result.model ?? null, response: result });
+  deps.recordings.save(bundle.hash, { model, response: result });
 
   if (final) return { ...concludeFrom(result), replayed: false };
   return { ...result, replayed: false };

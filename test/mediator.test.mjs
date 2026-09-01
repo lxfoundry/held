@@ -18,7 +18,9 @@ const recordings = () => {
   return { find: (h) => map.get(h) ?? null, save: (h, v) => map.set(h, v) };
 };
 
-const answering = (result) => async () => result;
+// deps.call reports { model, result }: the model beside the answer, because the
+// answer is schema-bound and cannot carry it.
+const answering = (result, model = "claude-opus-5") => async () => ({ model, result });
 
 const proposal = { status: STATUS.PROPOSAL, buyerPercent: 20, reasoning: "r", findings: [] };
 const asking = {
@@ -66,7 +68,7 @@ test("the final round is told it is final and may not ask", async () => {
   const out = await mediate({
     bundle, record: record(), now: 0, maxRounds: 1,
     deps: {
-      call: async ({ final }) => { sawFinal = final; return asking; },
+      call: async ({ final }) => { sawFinal = final; return { model: "claude-opus-5", result: asking }; },
       recordings: recordings(),
     },
   });
@@ -92,7 +94,7 @@ test("an ungrounded response is retried once, then fails the case", async () => 
   await assert.rejects(
     mediate({
       bundle, record: record(), now: 0,
-      deps: { call: async () => { calls += 1; return bad; }, recordings: recordings() },
+      deps: { call: async () => { calls += 1; return { model: "claude-opus-5", result: bad }; }, recordings: recordings() },
     }),
     /not in the bundle/,
   );
@@ -135,4 +137,17 @@ test("a replayed question with rounds still available stays a question", async (
   });
   assert.equal(out.replayed, true);
   assert.equal(out.status, STATUS.NEEDS_EVIDENCE);
+});
+
+// The spec requires a case to state which model produced its proposal. The
+// model name cannot arrive on the result itself: checkProposal's field
+// allowlist rejects any key outside the schema, so a result carrying `model`
+// would be refused as an unknown field. It has to come from the caller.
+test("the recording captures which model produced it", async () => {
+  const store = recordings();
+  await mediate({
+    bundle, record: record(), now: 0,
+    deps: { call: answering(proposal), recordings: store },
+  });
+  assert.equal(store.find(bundle.hash).model, "claude-opus-5");
 });

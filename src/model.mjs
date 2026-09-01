@@ -72,6 +72,14 @@ const FORMAT = {
   },
 };
 
+// The one place the model name is decided. Exported because the recording has
+// to state which model produced a proposal, and the answer cannot travel back
+// on the result itself: checkProposal's field allowlist refuses any key outside
+// the schema, so a result carrying `model` is rejected as an unknown field.
+export function resolveModel(model = null) {
+  return model ?? process.env.MEDIATOR_MODEL ?? MEDIATOR_MODEL_DEFAULT;
+}
+
 export function buildRequest({ bundle, system, photos = [], final = false, model = null }) {
   const content = [
     { type: "text", text: JSON.stringify({ exchangeId: bundle.exchangeId, items: bundle.items }, null, 2) },
@@ -96,7 +104,7 @@ export function buildRequest({ bundle, system, photos = [], final = false, model
   }
 
   return {
-    model: model ?? process.env.MEDIATOR_MODEL ?? MEDIATOR_MODEL_DEFAULT,
+    model: resolveModel(model),
     max_tokens: 16000,
     system,
     thinking: { type: "adaptive" },
@@ -105,10 +113,13 @@ export function buildRequest({ bundle, system, photos = [], final = false, model
   };
 }
 
+// Returns the model alongside the parsed answer rather than merged into it,
+// for the reason above: the answer is schema-bound and has no room for it.
 export async function callModel({ client, bundle, system, photos = [], final = false, model = null }) {
-  const response = await client.messages.create(buildRequest({ bundle, system, photos, final, model }));
+  const request = buildRequest({ bundle, system, photos, final, model });
+  const response = await client.messages.create(request);
   // ⚠️ Text blocks only. Adaptive thinking puts thinking blocks in the same
   // array, and concatenating everything would hand JSON.parse the reasoning.
   const text = response.content.filter((b) => b.type === "text").map((b) => b.text).join("");
-  return JSON.parse(text);
+  return { model: request.model, result: JSON.parse(text) };
 }

@@ -38,14 +38,17 @@ test("a final round says so in the request", () => {
   assert.match(text, /final round/i);
 });
 
-test("callModel parses the structured output and returns it", async () => {
+test("callModel parses the structured output and reports the model beside it", async () => {
   const client = {
     messages: {
       create: async () => ({ content: [{ type: "text", text: '{"status":"proposal","buyerPercent":20}' }] }),
     },
   };
-  const result = await callModel({ client, bundle, system: "s", photos: [] });
+  const { model, result } = await callModel({ client, bundle, system: "s", photos: [] });
   assert.equal(result.buyerPercent, 20);
+  // The recording states which model produced a proposal, and this is the only
+  // layer that knows. It cannot ride on `result`: checkProposal would reject it.
+  assert.equal(model, MEDIATOR_MODEL_DEFAULT);
 });
 
 // Adaptive thinking means the response carries thinking blocks alongside the
@@ -59,6 +62,6 @@ test("thinking blocks in the response are not parsed as output", async () => {
       ] }),
     },
   };
-  const result = await callModel({ client, bundle, system: "s", photos: [] });
+  const { result } = await callModel({ client, bundle, system: "s", photos: [] });
   assert.equal(result.buyerPercent, 20);
 });
