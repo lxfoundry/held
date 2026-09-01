@@ -291,7 +291,9 @@ applies.
 
 ## 10. Licence
 
-<!-- TODO: EasyA requires the submission to be open source. Add a LICENSE file (MIT or Apache-2.0)
-     and name it here. There is no LICENSE file in the repo at the moment. -->
+Apache License 2.0 — full text in [`LICENSE`](./LICENSE). Copyright 2026 LX Foundry.
 
-*To be added.*
+This is the same licence the Boson Protocol SDKs are published under, so the dependency tree sits
+under one permissive licence with no compatibility question. Apache-2.0 also grants an express
+patent licence alongside the copyright one, which matters more here than it would for a plain
+library: the escalation ladder and the watchdog are mechanisms, not just code.
