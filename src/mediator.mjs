@@ -85,10 +85,19 @@ export async function mediate({
   // override the watchdog takes from ESCALATION_LEAD_MS, so a demonstration
   // configuration moves both together or neither.
   escalateLeadMs = null,
-  round = 1,
+  caseRecord = null,
   system = "",
   photos = [],
 }) {
+  // ⚠️ Derived from what has been recorded, never passed in and trusted.
+  //
+  // There is no loop here on purpose: a round asks a *person* for a photograph
+  // and the answer arrives hours or days later, against a new bundle with a new
+  // hash. Rounds are separate invocations, so the only durable count of them is
+  // the case record — and a `round` argument the caller had to remember to
+  // increment pinned every call at round one, which left the cap unreachable
+  // and this component with no bound it actually owned.
+  const round = (Array.isArray(caseRecord?.rounds) ? caseRecord.rounds.length : 0) + 1;
   const deadline = deadlineFor(record, escalateLeadMs);
   // A round that cannot be answered before the deadline must not ask for
   // anything, so it is run as a final round and concludes on what it has.

@@ -115,3 +115,18 @@ test("an ordinary completion still parses", async () => {
   const { result } = await callModel({ client, bundle, system: "s", photos: [] });
   assert.equal(result.buyerPercent, 20);
 });
+
+// The recording exists to state which model produced a proposal, and the
+// authoritative answer is the one the API says it served — not the one the
+// request asked for.
+test("the model reported is the one the response says served it", async () => {
+  const client = responding({ stop_reason: "end_turn", model: "claude-opus-5-served", content: [{ type: "text", text: ok }] });
+  const { model } = await callModel({ client, bundle, system: "s", photos: [] });
+  assert.equal(model, "claude-opus-5-served");
+});
+
+test("a response that names no model falls back to the one requested", async () => {
+  const client = responding({ stop_reason: "end_turn", content: [{ type: "text", text: ok }] });
+  const { model } = await callModel({ client, bundle, system: "s", photos: [] });
+  assert.equal(model, MEDIATOR_MODEL_DEFAULT);
+});

@@ -42,6 +42,7 @@ const caseRecord = {
       provided: [],
     },
   ],
+  model: "claude-opus-5",
   proposal: { status: "proposal", buyerPercent: 20, reasoning: "settled" },
 };
 
@@ -107,4 +108,34 @@ test("evidence answers the request it names, not every request in the round", ()
     [["the outer carton", true], ["the seller's receipt", false]],
   );
   assert.deepEqual(file.contested, ["the seller's receipt"]);
+});
+
+// ⚠️ Completeness is the clerk's whole job. A manifest of ids tells the person
+// deciding the case nothing they can weigh — they need what the item actually
+// said, and a photograph they can go and open.
+test("every evidence item carries its content", () => {
+  const { evidence } = buildCaseFile({ bundle, caseRecord });
+  const photo = evidence.find((e) => e.kind === "photo");
+  assert.equal(photo.content.path, "fixtures/case/photos/inner.jpg");
+  const message = evidence.find((e) => e.id === "msg-1");
+  assert.equal(message.content.text, "Posted this morning");
+  const event = evidence.find((e) => e.id === "trk-1");
+  assert.ok(event.content.statusMilestone, "a tracking event reached the file with no milestone");
+});
+
+// Spec §6: the case file carries both parties' positions. There is no separate
+// position statement in this build — a party's position is what that party
+// actually said, which is the message thread grouped by who wrote it.
+test("both parties' positions appear, attributed to who said them", () => {
+  const { positions } = buildCaseFile({ bundle, caseRecord });
+  assert.deepEqual(positions.seller.map((p) => p.said), ["Posted this morning"]);
+  assert.deepEqual(positions.buyer.map((p) => p.said), ["It arrived damaged"]);
+  assert.ok(positions.seller.every((p) => p.id && p.at != null));
+});
+
+// Spec §8: a case file states which model produced its proposal rather than
+// leaving it to be inferred from a deployment date.
+test("the case file names the model that mediated", () => {
+  assert.equal(buildCaseFile({ bundle, caseRecord }).model, "claude-opus-5");
+  assert.equal(buildCaseFile({ bundle, caseRecord: { rounds: [] } }).model, null);
 });

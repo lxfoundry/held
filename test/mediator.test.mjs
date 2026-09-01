@@ -4,6 +4,7 @@ import { mediate, deadlineFor } from "../src/mediator.mjs";
 import { STATUS, forParty } from "../src/proposal.mjs";
 import { ESCALATE_LEAD, MalformedRecordError, leadMs } from "../src/adapter.mjs";
 import { UnusableModelResponse } from "../src/model.mjs";
+import { assembleBundle } from "../src/evidence.mjs";
 
 const DAY = 86_400_000;
 const bundle = { exchangeId: "241", hash: "a".repeat(64), items: [{ id: "pho-1" }] };
@@ -277,4 +278,98 @@ test("a retry that comes back usable settles the case", async () => {
   });
   assert.equal(calls, 2);
   assert.equal(out.status, STATUS.PROPOSAL);
+});
+
+// --- rounds ---
+
+// ⚠️ The round is derived from what has actually been recorded, not passed in
+// and trusted. A caller that forgets to increment it pins every call at round
+// one, and the cap — the only bound this component owns — never fires.
+const withRounds = (n) => ({ exchangeId: "241", rounds: Array.from({ length: n }, () => ({})) });
+
+test("the round is the one after the last recorded round", async () => {
+  let sawFinal = null;
+  await mediate({
+    bundle, record: record(), now: 0, maxRounds: 3, caseRecord: withRounds(1),
+    deps: {
+      call: async ({ final }) => { sawFinal = final; return { model: "m", result: proposal }; },
+      recordings: recordings(),
+    },
+  });
+  assert.equal(sawFinal, false, "round two was treated as final");
+});
+
+test("the cap fires on the last round the cap allows", async () => {
+  let sawFinal = null;
+  await mediate({
+    bundle, record: record(), now: 0, maxRounds: 3, caseRecord: withRounds(2),
+    deps: {
+      call: async ({ final }) => { sawFinal = final; return { model: "m", result: proposal }; },
+      recordings: recordings(),
+    },
+  });
+  assert.equal(sawFinal, true, "the third of three rounds was not final");
+});
+
+test("the cap is never exceeded", async () => {
+  for (const recorded of [3, 4, 9]) {
+    let sawFinal = null;
+    const out = await mediate({
+      bundle, record: record(), now: 0, maxRounds: 3, caseRecord: withRounds(recorded),
+      deps: {
+        call: async ({ final }) => { sawFinal = final; return { model: "m", result: asking }; },
+        recordings: recordings(),
+      },
+    });
+    assert.equal(sawFinal, true, `${recorded} rounds recorded and the next was not final`);
+    assert.equal(out.status, STATUS.PROPOSAL, "a question survived past the cap");
+  }
+});
+
+test("a case record with no rounds yet is the first round", async () => {
+  let sawFinal = null;
+  await mediate({
+    bundle, record: record(), now: 0, maxRounds: 2, caseRecord: { exchangeId: "241" },
+    deps: {
+      call: async ({ final }) => { sawFinal = final; return { model: "m", result: proposal }; },
+      recordings: recordings(),
+    },
+  });
+  assert.equal(sawFinal, false);
+});
+
+// ⭐ The property the whole design turns on: the diagnostic question is
+// load-bearing or it should not have been asked. Round one asks and holds a
+// provisional; the photograph arrives; round two runs over a bundle whose hash
+// changed because of it, and lands on a different number. Both rounds are
+// recordings, so this needs no API key.
+test("round two, with the requested item added, reaches a different number", async () => {
+  const photos = [{ path: "fixtures/case/photos/inner.jpg", sha256: "aa" }];
+  const roundOne = assembleBundle({ exchangeId: "241", photos });
+  const roundTwo = assembleBundle({
+    exchangeId: "241",
+    photos: [...photos, { path: "fixtures/case/photos/carton-crushed.jpg", sha256: "bb" }],
+  });
+  assert.notEqual(roundOne.hash, roundTwo.hash, "the added photograph did not change the hash");
+
+  const store = recordings();
+  store.save(roundOne.hash, { model: "m", response: asking });
+  store.save(roundTwo.hash, {
+    model: "m",
+    response: { status: STATUS.PROPOSAL, buyerPercent: 45, reasoning: "the carton was crushed", findings: [] },
+  });
+  const deps = { call: async () => { throw new Error("must not call the model"); }, recordings: store };
+
+  const first = await mediate({ bundle: roundOne, record: record(), now: 0, caseRecord: { rounds: [] }, deps });
+  assert.equal(first.status, STATUS.NEEDS_EVIDENCE);
+  assert.equal(first.requests[0].what, "the carton");
+
+  const second = await mediate({
+    bundle: roundTwo, record: record(), now: 0,
+    caseRecord: { rounds: [{ requests: first.requests, provided: [{ what: "the carton" }] }] },
+    deps,
+  });
+  assert.equal(second.status, STATUS.PROPOSAL);
+  assert.notEqual(second.buyerPercent, asking.provisional.buyerPercent,
+    "the answer changed nothing, so the question was decorative");
 });

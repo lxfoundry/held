@@ -114,6 +114,14 @@ export function toBasisPoints(buyerPercent) {
 // ⚠️ Everything a party sees goes through here. A party who can see which
 // answer raises their share has been handed a multiple-choice question with the
 // marks printed on it.
+//
+// It takes no party, and that is deliberate rather than unfinished: the rule is
+// that *neither* party sees these fields, so the projection is the same one for
+// both and a party argument would be an inert parameter inviting the belief
+// that something varies on it. Where a view genuinely differs by audience the
+// mechanism already exists one layer up — `visibility` on each bundle item,
+// selected by `viewer` at assembly — and selecting again here would be two
+// places that have to agree.
 export function forParty(result) {
   const strip = (value) => {
     if (Array.isArray(value)) return value.map(strip);

@@ -32,7 +32,25 @@ export function buildCaseFile({ bundle, caseRecord }) {
     // fact would be misleading to the person who has to weigh them.
     provenance: i.provenance,
     authored: i.authored,
+    // ⚠️ The content itself, not just a reference to it. Completeness is this
+    // component's whole job, and an id with a kind beside it is a manifest —
+    // the person deciding the case cannot weigh what they cannot read. A
+    // photograph is still a path and a digest here, never bytes, for the same
+    // reason it is one in the bundle.
+    content: i.content,
   }));
+
+  // Spec: the case file carries both parties' positions. There is no separate
+  // position statement anywhere in this build, and inventing one would mean
+  // summarising — which is judgement, and not the clerk's. A party's position
+  // is what that party actually said, so it is the message thread grouped by
+  // who wrote it, with the ids kept so each line is traceable to its item.
+  const said = (provenance) =>
+    bundle.items
+      .filter((i) => i.kind === "message" && i.provenance === provenance)
+      .map((i) => ({ id: i.id, at: i.at, said: i.content?.text ?? "" }));
+
+  const positions = { buyer: said("buyer"), seller: said("seller") };
 
   const requests = (caseRecord.rounds ?? []).flatMap((round) => {
     // ⚠️ Matched per request, never per round. A round may carry a request to
@@ -58,5 +76,17 @@ export function buildCaseFile({ bundle, caseRecord }) {
 
   const contested = requests.filter((r) => !r.answered).map((r) => r.what);
 
-  return { exchangeId: bundle.exchangeId, timeline, evidence, requests, contested };
+  return {
+    exchangeId: bundle.exchangeId,
+    // Which model mediated, stated rather than left to be inferred from a
+    // deployment date. It is the model, never its number: this file exists
+    // because mediation did not close the case, and §4.4 is what keeps the
+    // proposal out of it.
+    model: caseRecord.model ?? null,
+    timeline,
+    positions,
+    evidence,
+    requests,
+    contested,
+  };
 }

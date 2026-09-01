@@ -25,6 +25,16 @@ const PREFIX = {
 // an object literal happened to be written in.
 function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical);
+  // ⚠️ Both of these before the object branch, and both are silent otherwise.
+  // A Date has no own enumerable keys, so Object.keys() is empty and every Date
+  // canonicalises to {} — two different instants producing one hash, on the
+  // value the hash exists to distinguish. A BigInt is not an object at all and
+  // JSON.stringify throws on it outright.
+  if (value instanceof Date) {
+    const ms = value.getTime();
+    return Number.isNaN(ms) ? "Invalid Date" : value.toISOString();
+  }
+  if (typeof value === "bigint") return value.toString();
   if (value && typeof value === "object") {
     return Object.keys(value).sort().reduce((out, k) => {
       out[k] = canonical(value[k]);
@@ -34,6 +44,18 @@ function canonical(value) {
   return value;
 }
 
+// ⚠️ Over the items, and deliberately not over the exchangeId.
+//
+// The hash is the replay key, and replay is what lets this system run with no
+// network access to the model provider. Rebuilding the same case under a new
+// exchangeId — which is what re-seeding does — must still find its recording;
+// binding the key to the exchange would miss every one of them and force a live
+// call, which is the failure mode replay exists to prevent.
+//
+// What that trades away: two exchanges whose evidence is byte-identical share a
+// recording. Every real bundle carries per-parcel event ids and its own offer
+// terms, so identical evidence means an empty bundle — a case with nothing to
+// mediate — rather than two genuine cases colliding.
 export function bundleHash(items) {
   return createHash("sha256").update(JSON.stringify(canonical(items))).digest("hex");
 }

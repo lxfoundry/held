@@ -156,7 +156,10 @@ export async function callModel({ client, bundle, system, photos = [], final = f
   if (!text) throw new UnusableModelResponse("the response carried no text block");
 
   try {
-    return { model: request.model, result: JSON.parse(text) };
+    // What the API says it served, not what was asked for. The recording exists
+    // to state which model produced a proposal, and only one of those two is
+    // the authoritative answer to that.
+    return { model: response.model ?? request.model, result: JSON.parse(text) };
   } catch (err) {
     throw new UnusableModelResponse(`the response was not valid JSON: ${err.message}`);
   }

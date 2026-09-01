@@ -117,3 +117,29 @@ test("real captured events keep their ids across a reordering", () => {
   );
   assert.equal(reversed.hash, forward.hash);
 });
+
+// ⚠️ A Date has no own enumerable keys, so the object branch canonicalises
+// every one of them to {} and two different instants hash identically. Latent
+// while every timestamp is a number, and silent the moment one is not.
+test("two different dates do not hash to the same bundle", () => {
+  assert.notEqual(
+    bundleHash([{ id: "x", content: { at: new Date("2026-01-01T00:00:00Z") } }]),
+    bundleHash([{ id: "x", content: { at: new Date("2099-12-31T00:00:00Z") } }]),
+  );
+});
+
+test("a date and its own ISO string agree", () => {
+  assert.equal(
+    bundleHash([{ id: "x", content: { at: new Date("2026-01-01T00:00:00Z") } }]),
+    bundleHash([{ id: "x", content: { at: "2026-01-01T00:00:00.000Z" } }]),
+  );
+});
+
+// A chain read is a plausible source of one, and JSON.stringify throws on it.
+test("a bigint hashes rather than throwing", () => {
+  assert.doesNotThrow(() => bundleHash([{ id: "x", content: { price: 10n } }]));
+  assert.notEqual(
+    bundleHash([{ id: "x", content: { price: 10n } }]),
+    bundleHash([{ id: "x", content: { price: 11n } }]),
+  );
+});
