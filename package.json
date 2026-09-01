@@ -21,6 +21,7 @@
     "confirm": "node scripts/confirm-receipt.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.122.0",
     "@bosonprotocol/core-sdk": "1.48.1-alpha.2",
     "@bosonprotocol/ethers-sdk": "1.18.1-alpha.2",
     "ethers": "5.7.2",
