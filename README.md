@@ -251,11 +251,41 @@ in `.env` only. On-chain addresses and public tracking numbers are fine.
 
 ## 9. AI models used
 
-<!-- TODO before submission: EasyA requires documenting which LLMs were used, for the product and
-     for development. Fill this in once the mediator model is settled — the .env slot MEDIATOR_MODEL
-     is still empty. -->
+**In the product — one model, reached from one file.** Mediation is the only path that calls a
+model. It uses **Claude Opus 5** (`claude-opus-5`) through the official `@anthropic-ai/sdk`, and
+`src/model.mjs` is the only module in this repository that talks to a model provider.
 
-*To be documented.*
+The case file is not a second such path. `src/clerk.mjs` has no imports at all and calls nothing: it
+assembles the file deterministically from the evidence bundle and the case record, and records which
+model *mediated* rather than consulting one itself.
+
+| | |
+|---|---|
+| Model | `claude-opus-5`, overridable with `MEDIATOR_MODEL` |
+| SDK | `@anthropic-ai/sdk`, pinned to an exact version |
+| Output | structured output via `output_config.format` against a JSON schema |
+| Thinking | `thinking: { type: "adaptive" }` |
+| Tools | **none — there is no `tools` field in the request** |
+
+The absent `tools` field is the point rather than an oversight. No model-driven component here holds
+a tool that can move funds, and that is a property of the code — one file, one request shape, in
+which adding such a tool would be a visible change — rather than an instruction in a prompt. The
+model's entire action space is one number between 0 and 100; `src/proposal.mjs` checks it, and
+checks that every finding cites evidence that was actually in front of the model, before either can
+reach the protocol. Nothing settles without an explicit human acceptance, and either party may
+decline.
+
+Which model produced a proposal is recorded on the case record and stated in the case file, taken
+from what the API reports it served rather than from what the request asked for.
+
+Every call is recorded against the hash of the evidence that produced it, and a matching hash serves
+the recording instead of calling the API. The test suite runs entirely on recordings and needs no
+API key. A replayed proposal is a recording of a real run and is labelled as one wherever it is
+shown.
+
+**In development.** The code, tests and documentation in this repository were written with Claude
+Code, using Claude Opus 5. Commits carry a `Co-Authored-By: Claude Opus 5` trailer where that
+applies.
 
 ---
 

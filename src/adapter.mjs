@@ -75,6 +75,22 @@ function ms(exchangeId, what, value) {
   return value;
 }
 
+// The instant a lapsing resolution period pays the seller, with every field it
+// is computed from guarded by `ms` above.
+//
+// ⭐ Exported because mediation runs inside this same window and must read the
+// same instant. A second copy of this arithmetic elsewhere is two answers to
+// when the money moves, and the copy without the guard is the one that reports
+// a healthy window forever.
+export function resolutionDueAt(record) {
+  if (record?.disputeRaisedAt == null) return null;
+  const id = record.exchangeId;
+  return record.disputeTimeoutAt != null
+    ? ms(id, "disputeTimeoutAt", record.disputeTimeoutAt)
+    : ms(id, "disputeRaisedAt", record.disputeRaisedAt) +
+      ms(id, "resolutionPeriodMs", record.resolutionPeriodMs);
+}
+
 export function decide({ tracking, record, now, leads }) {
   // ⚠️ Compared against null, not truthiness. These are timestamps, and a
   // timestamp of 0 is a real one — treating it as absent would silently ignore
@@ -89,12 +105,8 @@ export function decide({ tracking, record, now, leads }) {
   // One level down, the same asymmetry: a resolution period that lapses pays
   // the seller. Prefer the protocol's own timeout to anything computed here.
   if (record.disputeRaisedAt != null) {
-    const id = record.exchangeId;
-    const dueAt = record.disputeTimeoutAt != null
-      ? ms(id, "disputeTimeoutAt", record.disputeTimeoutAt)
-      : ms(id, "disputeRaisedAt", record.disputeRaisedAt) +
-        ms(id, "resolutionPeriodMs", record.resolutionPeriodMs);
-    const lead = ms(id, "the escalation lead", leads.escalateMs);
+    const dueAt = resolutionDueAt(record);
+    const lead = ms(record.exchangeId, "the escalation lead", leads.escalateMs);
 
     // Past the deadline the protocol refuses the call, so continuing to report
     // it as required would have the sweep retrying a doomed relay every minute

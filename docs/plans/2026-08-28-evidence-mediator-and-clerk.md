@@ -64,7 +64,7 @@ Every task's requirements implicitly include these. Values are copied from the s
 | `src/proposal.mjs` | The three result variants, the bounds, basis-point conversion, the party projection. Pure | yes |
 | `src/cases.mjs` | Case records and the recording store that replay reads | yes |
 | `src/model.mjs` | The only module that talks to the API. Takes an injected client | yes |
-| `src/mediator.mjs` | The round loop, the cap, the deadline, the terminal states | yes |
+| `src/mediator.mjs` | One round per call: the cap, the deadline, the terminal states | yes |
 | `src/clerk.mjs` | The case file, built from a bundle with no proposal | yes |
 | `src/disputes.mjs` | Raising a dispute, attributed before the relay, for either raiser | yes |
 | `scripts/raise-dispute.mjs` | The buyer's "something is wrong" action | yes |

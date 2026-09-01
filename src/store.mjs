@@ -51,10 +51,20 @@ const LOCK_TIMEOUT_MS = 5_000;
 // stored it at 14:21:40Z. Reading `datetime` would place the event 55 minutes
 // after it was recorded as arriving, which is what settles which field is
 // right: nothing can be stored before it happens.
-function timeOf(event) {
+// Exported because evidence assembly orders the same events and must not carry
+// a second copy of this precedence: two readings of when an event happened is
+// one of them being wrong. It returns null rather than 0 for an event with no
+// usable time, so a caller that has to tell "no time" from "the epoch" can.
+export function parseEventTime(event) {
   const raw = event?.occurrenceDatetime ?? event?.datetime;
   const parsed = raw ? Date.parse(raw) : Number.NaN;
-  return Number.isNaN(parsed) ? 0 : parsed;
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+// Sorting wants a number for every event, and an unusable time sorting first is
+// the behaviour this store has always had.
+function timeOf(event) {
+  return parseEventTime(event) ?? 0;
 }
 
 function byDatetime(a, b) {
