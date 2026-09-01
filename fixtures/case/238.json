@@ -1,0 +1,17 @@
+{
+  "exchangeId": "238",
+  "photos": [
+    { "id": "inner", "path": "fixtures/case/photos/inner.jpg", "media_type": "image/jpeg" }
+  ],
+  "messages": [
+    { "from": "buyer",  "at": 1787681520000, "text": "Hi - is the box in good condition? For a retired set that's most of what I'm paying for." },
+    { "from": "seller", "at": 1787682840000, "text": "Yes, stored in a cupboard since new. The boxes are fine." },
+    { "from": "buyer",  "at": 1787930400000, "text": "It arrived today. One box has a badly crushed corner, split right open. That isn't what I paid for." },
+    { "from": "seller", "at": 1787936520000, "text": "It was in good condition when it left me. I packed it carefully." }
+  ],
+  "listing": {
+    "title": "Four retired sets",
+    "body": "Used - like new. Boxes in good condition.",
+    "priceText": "200"
+  }
+}

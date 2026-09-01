@@ -20,7 +20,8 @@
     "watchdog": "node scripts/watchdog.mjs",
     "seed": "node scripts/seed-exchange.mjs",
     "confirm": "node scripts/confirm-receipt.mjs",
-    "raise": "node scripts/raise-dispute.mjs"
+    "raise": "node scripts/raise-dispute.mjs",
+    "mediate": "node scripts/mediate.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.122.0",
