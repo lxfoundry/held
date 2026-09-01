@@ -19,7 +19,8 @@
     "fetch": "node scripts/fetch-parcel.mjs",
     "watchdog": "node scripts/watchdog.mjs",
     "seed": "node scripts/seed-exchange.mjs",
-    "confirm": "node scripts/confirm-receipt.mjs"
+    "confirm": "node scripts/confirm-receipt.mjs",
+    "raise": "node scripts/raise-dispute.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.122.0",

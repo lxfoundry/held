@@ -74,11 +74,19 @@ export function createWatchdog({
     // The attempt is recorded before relaying and read back here, so the answer
     // survives the process dying between the two. Narrow on purpose: no attempt
     // means the dispute is somebody else's and is left unattributed.
+    //
+    // ⭐ Read again rather than trust the snapshot sweep() opened the pass with.
+    // The buyer can raise too, from scripts/raise-dispute.mjs — a separate
+    // process, so the in-process sweeping guard says nothing about it — and an
+    // earlier exchange sitting in confirm() can leave this snapshot minutes
+    // stale. exchanges.update re-reads from disk anyway, so this costs one read
+    // and shrinks the window from a whole sweep to microseconds.
+    const before = exchanges.get(record.exchangeId) ?? record;
     if (
       facts.disputeRaisedAt != null &&
       facts.disputeRaisedBy == null &&
-      record.disputeRaisedBy == null &&
-      record.disputeRaiseAttemptedAt != null
+      before.disputeRaisedBy == null &&
+      before.disputeRaiseAttemptedAt != null
     ) {
       facts.disputeRaisedBy = "watchdog";
     }

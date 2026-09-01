@@ -33,6 +33,7 @@ function harness({
   relayImpl,
   confirmImpl,
   trackersImpl,
+  wrapExchanges,
 } = {}) {
   const exchanges = createExchangeStore(mkdtempSync(join(tmpdir(), "held-wd-x-")));
   const authorisations = createAuthorisationStore(mkdtempSync(join(tmpdir(), "held-wd-a-")));
@@ -62,7 +63,9 @@ function harness({
   const relayed = [];
   const trackers = trackersImpl ?? { read: () => ({ state: { current: "in_transit", delivered: false, everAvailableForPickup: false } }) };
   const watchdog = createWatchdog({
-    exchanges,
+    // Wrapped only where a test needs the store to move under the sweep — the
+    // real one otherwise, and the real one is always what a test reads back.
+    exchanges: wrapExchanges ? wrapExchanges(exchanges) : exchanges,
     trackers,
     authorisations,
     readChainState: async () => ({
@@ -331,6 +334,35 @@ test("F1 · a dispute nobody here attempted is not claimed by the watchdog", asy
   const record = exchanges.get("42");
   assert.equal(record.disputeRaisedAt, 1);
   assert.equal(record.disputeRaisedBy, null, "unattributed, which the buyer's line reads as their own");
+  assert.equal(parcelLine({ tracking: null, record }).text, BUYER_STRINGS.sorting_out);
+});
+
+test("F1 · a buyer's own raise landing mid-sweep is not reattributed to the watchdog", async () => {
+  // The third way into the same field, and the one the buyer-initiated raise
+  // opens. scripts/raise-dispute.mjs is a separate process, so the in-process
+  // sweeping guard says nothing about it — and sweep() reads every record once
+  // at the top of a pass, where an earlier exchange can sit in confirm() for
+  // minutes. By the time step() reaches this record its snapshot can predate a
+  // raise the buyer made themselves, and claiming that one tells them the
+  // system acted when in fact they did.
+  const { watchdog, exchanges } = harness({
+    recordOver: { disputeRaiseAttemptedAt: 1 },
+    chainOver: { disputeRaisedAt: 1, disputeTimeoutAt: 90 * DAY },
+    wrapExchanges: (store) => ({
+      ...store,
+      all() {
+        const snapshot = store.all();
+        // The buyer's separate process, landing after the snapshot was taken.
+        store.update("42", { disputeRaisedBy: "buyer", disputeRaisedAt: 1 });
+        return snapshot;
+      },
+    }),
+  });
+
+  await watchdog.sweep();
+
+  const record = exchanges.get("42");
+  assert.equal(record.disputeRaisedBy, "buyer", "the buyer's own raise was claimed by the watchdog");
   assert.equal(parcelLine({ tracking: null, record }).text, BUYER_STRINGS.sorting_out);
 });
 
