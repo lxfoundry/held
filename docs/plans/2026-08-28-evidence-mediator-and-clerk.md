@@ -1270,7 +1270,7 @@ git commit -m "add the case clerk: a file with provenance intact and no proposed
 
 **Files:**
 - Create: `src/disputes.mjs`, `scripts/raise-dispute.mjs`
-- Modify: `src/watchdog.mjs` (move the attribution write to before the relay), `package.json`
+- Modify: `src/watchdog.mjs` (make the attribution guard read fresh — see Step 5), `package.json`
 - Test: `test/disputes.test.mjs`, `test/watchdog.test.mjs` (extend)
 
 > **A judgement call to understand before you change it.** `src/watchdog.mjs`'s `step()` handles
@@ -1281,10 +1281,26 @@ git commit -m "add the case clerk: a file with provenance intact and no proposed
 > The duplication is deliberate and is the smaller risk. If you are reading this with time in hand,
 > unifying them is the right cleanup.
 
-> ⚠️ **This task also closes the known attribution finding** — a dispute the watchdog raised can
-> currently read as buyer-raised when the relay lands but the confirmation does not, because
-> `disputeRaisedBy` is written only on the confirmed path. If that finding has already been fixed
-> separately, do Step 1's check and skip what is already done rather than writing it twice.
+> ✅ **The attribution finding this task was going to close is already fixed** — separately, and not
+> the way the sketch below assumed. It was not solved by moving the `disputeRaisedBy` write earlier.
+> `src/watchdog.mjs` now records **`disputeRaiseAttemptedAt`** before relaying and attributes the
+> dispute on a later sweep, when the chain confirms a dispute exists and an attempt by this watchdog
+> is on record — so `disputeRaisedBy` never claims a raise that did not land.
+>
+> ⚠️ **Four places below still describe the old shape** — the Files list above, the Interfaces list
+> above, Step 1's grep with Step 2's test, and Step 5, which has been rewritten into the change that
+> is actually still needed. **Read `step()` before following any of them.**
+>
+> What is left for this task is the buyer half: `raiseFor({ by })` writing `disputeRaisedBy: "buyer"`.
+> That one may be written before its relay, because the buyer's line is gated on `disputeRaisedAt`,
+> which `raiseFor` sets only after `confirm` returns.
+>
+> ⚠️ **But the two paths can still fight over one record, and Step 5 is what stops them.** The
+> watchdog does defer to a `disputeRaisedBy` already present — it just reads it from the snapshot
+> `sweep()` took at the top of the pass, which can be minutes stale by the time `step()` reaches this
+> record, since an earlier exchange may have sat in `confirm()`'s poll. A buyer raise landing inside
+> that window gets overwritten with `"watchdog"`, and `scripts/raise-dispute.mjs` is a **separate
+> process**, so the in-process `sweeping` guard says nothing about it.
 
 **Interfaces:**
 - Consumes: `exchanges.update(id, patch)` and `authorisations.has/load/discard(id, action)` from the
@@ -1292,7 +1308,8 @@ git commit -m "add the case clerk: a file with provenance intact and no proposed
 - Produces:
   - `raiseFor({ exchangeId, by, exchanges, authorisations, relay, confirm, now })` → the relay receipt
   - `npm run raise -- <exchangeId> [--execute]`
-  - records carry `disputeRaisedBy: "buyer" | "watchdog"`, written **before** the relay
+  - records carry `disputeRaisedBy: "buyer" | "watchdog"` — the buyer's written before its relay,
+    the watchdog's on the sweep after, read back from `disputeRaiseAttemptedAt`
 
 - [ ] **Step 1: Confirm where attribution is written today**
 
@@ -1431,21 +1448,33 @@ export async function raiseFor({
 }
 ```
 
-- [ ] **Step 5: Move the watchdog's attribution write to before its relay**
+- [ ] **Step 5: Make the watchdog's attribution read the record fresh**
 
-In `src/watchdog.mjs` `step()`, immediately **before** `await relay(stored);` insert:
+⚠️ **This is not what this step used to say.** It used to say *move the attribution write to before
+the relay*. That finding was closed a different and better way — `step()` already records
+`disputeRaiseAttemptedAt` before relaying and attributes on the sweep after. **There is no
+attribution write to move; do not add one.**
+
+What is still needed is closing the race that `raiseFor` opens by being a second raiser. The
+attribution guard tests `record.disputeRaisedBy`, and `record` is the snapshot `sweep()` took from
+`exchanges.all()` at the top of the pass — stale by however long the exchanges before it took.
+
+In `src/watchdog.mjs` `step()`, read the record again just before the guard:
 
 ```js
-    // Attribution before the relay, for the same reason as src/disputes.mjs:
-    // a relay that lands while its confirmation is lost must not leave the
-    // record claiming nobody raised this.
-    if (action === ACTIONS.RAISE) {
-      exchanges.update(current.exchangeId, { disputeRaisedBy: "watchdog" });
-    }
+    // ⭐ Read again rather than trust the snapshot sweep() opened with: a buyer
+    // raise comes from raise-dispute.mjs, a separate process, so the in-process
+    // sweeping guard says nothing about it — and this record may have been
+    // written since this sweep began.
+    const before = exchanges.get(record.exchangeId) ?? record;
 ```
 
-The existing post-confirm write stays as it is — it adds `disputeRaisedAt`, which must only be
-recorded once the protocol has confirmed.
+and test `before.disputeRaisedBy` and `before.disputeRaiseAttemptedAt` in place of the two
+`record.…` reads. `exchanges.update` re-reads from disk on every call anyway, so this costs one
+extra read and shrinks the window from a whole sweep to microseconds.
+
+**Test it:** a record with `disputeRaisedBy: "buyer"` written to disk *after* `all()` returned must
+come out of the sweep still attributed to the buyer.
 
 - [ ] **Step 6: Write the buyer's action**
 

@@ -33,6 +33,22 @@ export function createWatchdog({
     throw new Error("a watchdog needs a confirm() that reads back what the relay actually did");
   }
 
+  // ⭐ The one place an authorisation is deleted, so the record's list of what
+  // protects an exchange cannot drift from the store that actually holds them.
+  // It used to: the watchdog reads the filesystem and never that array, so a
+  // relayed raise left the record still claiming to hold one. Harmless to the
+  // machinery, and exactly the wrong thing to hand an operator asking what is
+  // protected.
+  //
+  // The signature goes first and the record second, deliberately — a throw
+  // while writing the record must not leave a spent bearer instrument on disk.
+  function discard(exchangeId, action, why) {
+    if (!authorisations.has(exchangeId, action)) return;
+    authorisations.discard(exchangeId, action);
+    exchanges.update(exchangeId, { authorisations: authorisations.list(exchangeId) });
+    if (why) log(`· discarded the ${action} authorisation: ${why}`);
+  }
+
   async function step(record) {
     const result = { exchangeId: record.exchangeId, action: ACTIONS.NONE, reason: null, relayed: false };
 
@@ -46,6 +62,26 @@ export function createWatchdog({
     // over what we already know would erase it once per sweep.
     const chain = await readChainState(record.exchangeId);
     const facts = Object.fromEntries(Object.entries(chain).filter(([, value]) => value != null));
+
+    // ⭐ Who raised it, for a dispute this watchdog relayed but never got to
+    // confirm. Attribution used to be written only on the confirmed path, so a
+    // relay that landed while the read-back timed out came back on the next
+    // sweep as a dispute out of nowhere — and an unattributed dispute is read as
+    // the buyer's own. The buyer was then told "Let's sort this out" rather than
+    // "It hasn't arrived. We've raised this for you.", which is the promise the
+    // whole watchdog exists to keep, dropped in the one case it exists for.
+    //
+    // The attempt is recorded before relaying and read back here, so the answer
+    // survives the process dying between the two. Narrow on purpose: no attempt
+    // means the dispute is somebody else's and is left unattributed.
+    if (
+      facts.disputeRaisedAt != null &&
+      facts.disputeRaisedBy == null &&
+      record.disputeRaisedBy == null &&
+      record.disputeRaiseAttemptedAt != null
+    ) {
+      facts.disputeRaisedBy = "watchdog";
+    }
     const current = exchanges.update(record.exchangeId, facts);
 
     // ⚠️ An unreadable snapshot is an absence of delivery evidence, not a reason
@@ -71,15 +107,32 @@ export function createWatchdog({
     });
     Object.assign(result, { action, reason, dueAt });
 
-    // The other half of "discard on use". An exchange that has finalised will
-    // never need these again, and a bearer instrument nobody needs is a
-    // liability with no upside — so they do not sit on disk indefinitely
-    // waiting for the one that spends them.
+    // The other half of "discard on use", and it is the protocol that decides
+    // what "spent" means rather than this process's own record of what it
+    // relayed. A dispute cannot be raised twice and an escalation cannot be
+    // escalated twice, so the moment the chain shows either has happened that
+    // signature can never be accepted again — whoever spent it. Relaying it
+    // would revert on a used nonce, so nothing here was ever dangerous; a
+    // bearer instrument with no remaining use is simply a liability with no
+    // upside, and it does not sit on disk waiting for the one that spends it.
+    //
+    // Ordered widest first: a finalised exchange needs none of them, whatever
+    // the dispute dates say.
+    const spent = [];
     if (current.finalisedAt != null) {
       for (const held of authorisations.list(current.exchangeId)) {
-        authorisations.discard(current.exchangeId, held);
-        log(`· discarded the ${held} authorisation: exchange ${current.exchangeId} is finalised`);
+        spent.push([held, `exchange ${current.exchangeId} is finalised`]);
       }
+    } else {
+      if (current.disputeRaisedAt != null) {
+        spent.push([ACTIONS.RAISE, `a dispute already exists on chain for exchange ${current.exchangeId}`]);
+      }
+      if (current.escalatedAt != null) {
+        spent.push([ACTIONS.ESCALATE, `exchange ${current.exchangeId} is already escalated`]);
+      }
+    }
+    for (const [held, why] of spent) {
+      discard(current.exchangeId, held, why);
     }
 
     if (action === ACTIONS.NONE) return result;
@@ -93,6 +146,16 @@ export function createWatchdog({
     }
 
     const stored = authorisations.load(current.exchangeId, action);
+
+    // ⚠️ Written before the relay, not after, because the failure it answers is
+    // precisely that nothing after the relay runs. Once the transaction is
+    // submitted the dispute may exist on chain whatever happens to this
+    // process, so the note that it was this watchdog that submitted it has to
+    // already be on disk by then.
+    if (action === ACTIONS.RAISE) {
+      exchanges.update(current.exchangeId, { disputeRaiseAttemptedAt: now() });
+    }
+
     await relay(stored);
 
     // The protocol is asked whether it happened, rather than the relayer being
@@ -103,7 +166,7 @@ export function createWatchdog({
 
     // Discarded only once the action is known to have landed. Doing it any
     // earlier trades the buyer's protection for the appearance of success.
-    authorisations.discard(current.exchangeId, action);
+    discard(current.exchangeId, action);
 
     const at = now();
     exchanges.update(

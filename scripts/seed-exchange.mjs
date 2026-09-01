@@ -212,6 +212,7 @@ async function protect({
     resolutionPeriodMs,
     disputeRaisedAt: null,
     disputeRaisedBy: null,
+    disputeRaiseAttemptedAt: null,
     disputeTimeoutAt: null,
     escalatedAt: null,
     finalisedAt: null,

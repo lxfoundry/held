@@ -49,6 +49,10 @@ const SIGNATURE_VALUE = /^0x[0-9a-fA-F]{130}$/;
 const MS_FIELDS = [
   "redeemedAt", "disputePeriodMs", "resolutionPeriodMs",
   "disputeRaisedAt", "disputeTimeoutAt", "escalatedAt", "finalisedAt",
+  // When this system submitted a raise, as opposed to when the protocol
+  // recorded one. The two differ whenever a relay lands and its confirmation
+  // does not, and the gap is what attributes the dispute afterwards.
+  "disputeRaiseAttemptedAt",
 ];
 
 function assertNoSecrets(value, path = "") {
