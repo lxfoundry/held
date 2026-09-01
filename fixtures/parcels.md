@@ -13,11 +13,15 @@ still `null`. Scrub fixtures by pattern over the whole payload, not by field nam
 
 ⚠️ **Tracked services only.** Standard 1st/2nd class produces no tracking events at all.
 
+⚠️ **`statusCode` is frequently `null`** on real Royal Mail events — six of B2's nine carry no
+code at all, only a free-text `status` like *Shipment Received in Depot*. `statusMilestone` was
+populated on every event observed so far. Map on the milestone; never key behaviour off `statusCode`.
+
 | Parcel | Tracking number | Tracker id | Service | Posted | Job |
 |---|---|---|---|---|---|
 | **A** | `MZ544750899GB` | `8645991e-538a-40a2-8618-6f9d3777a6ae` | Tracked 24 | 2026-08-26, handed over 14:21Z | Delivered-path event stream; the damage photographs; the `gb-post` proof — ✅ **delivered 2026-08-28 12:49Z, seven events captured**: four `in_transit`, two `out_for_delivery`, then `delivered` |
-| **B1** | `VU499656714GB` | `96a4693b-33b5-45b3-9fff-32c596798c96` | Tracked 48 | 2026-08-27, handed over 14:16Z *(labelled 26 Aug)* | In-transit events over a multi-day window — ✅ **accepted into the network**; registering the tracker a day early caught the acceptance scan itself |
-| **B2** | `VU509120741GB` | `076c427a-7418-4c36-a1b8-785ff18ece96` | Tracked 48 | 2026-08-28 | Backup undelivered-path target — ✅ **tracker registered and on the receiver's allowlist**; no events until it is accepted into the network |
+| **B1** | `VU499656714GB` | `96a4693b-33b5-45b3-9fff-32c596798c96` | Tracked 48 | 2026-08-27, handed over 14:16Z *(labelled 26 Aug)* | In-transit events over a multi-day window — ✅ **accepted into the network**; registering the tracker a day early caught the acceptance scan itself. ⚠️ **Still `in_transit` on 2026-09-01 with that acceptance scan as its only event** — five days, one event: a Tracked 48 parcel can go silent for longer than its service name suggests |
+| **B2** | `VU509120741GB` | `076c427a-7418-4c36-a1b8-785ff18ece96` | Tracked 48 | 2026-08-28, handed over 16:14Z | Posted as a backup undelivered-path target — ✅ **delivered 2026-08-30 13:54Z, nine events captured**: six `in_transit`, two `out_for_delivery`, then `delivered`. A second delivered stream rather than the undelivered one it was posted to be |
 | **B3** | — | — | Tracked 48 | 2026-09-01 | ⭐ Primary undelivered-path target — posted the morning it is needed, so non-delivery is certain |
 
 ## Registering a parcel
