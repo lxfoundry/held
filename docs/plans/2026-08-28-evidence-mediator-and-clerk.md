@@ -1281,10 +1281,17 @@ git commit -m "add the case clerk: a file with provenance intact and no proposed
 > The duplication is deliberate and is the smaller risk. If you are reading this with time in hand,
 > unifying them is the right cleanup.
 
-> ⚠️ **This task also closes the known attribution finding** — a dispute the watchdog raised can
-> currently read as buyer-raised when the relay lands but the confirmation does not, because
-> `disputeRaisedBy` is written only on the confirmed path. If that finding has already been fixed
-> separately, do Step 1's check and skip what is already done rather than writing it twice.
+> ✅ **The attribution finding this task was going to close is already fixed** — separately, and not
+> the way the sketch below assumed. It was not solved by moving the `disputeRaisedBy` write earlier.
+> `src/watchdog.mjs` now records **`disputeRaiseAttemptedAt`** before relaying and attributes the
+> dispute on a later sweep, when the chain confirms one exists and this process is the only one that
+> attempted it — so `disputeRaisedBy` never claims a raise that did not land. Step 1's grep and Step
+> 2's test below describe the old shape; **read `step()` before following them**.
+>
+> What is left for this task is the buyer half: `raiseFor({ by })` writing `disputeRaisedBy: "buyer"`.
+> That one may be written before its relay without the same care, because the buyer's line is gated on
+> `disputeRaisedAt`, which only the chain sets — and the watchdog's attribution defers to any
+> `disputeRaisedBy` already present, so the two cannot fight over the same record.
 
 **Interfaces:**
 - Consumes: `exchanges.update(id, patch)` and `authorisations.has/load/discard(id, action)` from the
