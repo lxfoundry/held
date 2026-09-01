@@ -251,10 +251,13 @@ in `.env` only. On-chain addresses and public tracking numbers are fine.
 
 ## 9. AI models used
 
-**In the product — one model, reached from one file.** Mediation and the case file are the only
-model-driven paths in the system, and both call **Claude Opus 5** (`claude-opus-5`) through the
-official `@anthropic-ai/sdk`. `src/model.mjs` is the only module in this repository that talks to a
-model provider.
+**In the product — one model, reached from one file.** Mediation is the only path that calls a
+model. It uses **Claude Opus 5** (`claude-opus-5`) through the official `@anthropic-ai/sdk`, and
+`src/model.mjs` is the only module in this repository that talks to a model provider.
+
+The case file is not a second such path. `src/clerk.mjs` has no imports at all and calls nothing: it
+assembles the file deterministically from the evidence bundle and the case record, and records which
+model *mediated* rather than consulting one itself.
 
 | | |
 |---|---|
