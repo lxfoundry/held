@@ -13,8 +13,8 @@ still `null`. Scrub fixtures by pattern over the whole payload, not by field nam
 
 ⚠️ **Tracked services only.** Standard 1st/2nd class produces no tracking events at all.
 
-⚠️ **`statusCode` is frequently `null`** on real Royal Mail events — six of B2's nine carry no
-code at all, only a free-text `status` like *Shipment Received in Depot*. `statusMilestone` was
+⚠️ **`statusCode` is frequently `null`** on real Royal Mail events — five of B2's nine carry
+no code at all, only a free-text `status` like *Shipment Received in Depot*. `statusMilestone` was
 populated on every event observed so far. Map on the milestone; never key behaviour off `statusCode`.
 
 | Parcel | Tracking number | Tracker id | Service | Posted | Job |
