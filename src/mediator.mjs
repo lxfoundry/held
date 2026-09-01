@@ -15,6 +15,21 @@ import { UnusableModelResponse } from "./model.mjs";
 // calls loadEnv and passes the value in.
 export const DEFAULT_MAX_ROUNDS = 3;
 
+// ⭐ One trigger: a dispute exists on the exchange. Delivery state, evidence
+// quality and which rung of the ladder the case resembles have no part in it,
+// and neither does who raised it — the watchdog on the buyer's behalf and the
+// buyer directly produce the same fact. Rungs are outcomes, not code paths, so
+// a rule deciding which disputes deserved mediation would be tracking-derived
+// policy sitting exactly where the bounds exist to keep it out.
+//
+// The two exclusions are not such a rule. They are the same terminal facts the
+// decision function already reads: rung four has the case, or it is finished.
+// Mediation runs on every dispute that is still open.
+export function shouldMediate(record) {
+  if (record?.disputeRaisedAt == null) return false;
+  return record.escalatedAt == null && record.finalisedAt == null;
+}
+
 // ⚠️ The deadline is the protocol's, not this component's. A resolution period
 // that lapses pays the seller, and the watchdog already escalates a lead before
 // that instant — so mediation runs inside a window something else guards, and

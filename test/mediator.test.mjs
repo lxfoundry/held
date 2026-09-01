@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mediate, deadlineFor } from "../src/mediator.mjs";
+import { mediate, deadlineFor, shouldMediate } from "../src/mediator.mjs";
 import { STATUS, forParty } from "../src/proposal.mjs";
 import { ESCALATE_LEAD, MalformedRecordError, leadMs } from "../src/adapter.mjs";
 import { UnusableModelResponse } from "../src/model.mjs";
@@ -372,4 +372,37 @@ test("round two, with the requested item added, reaches a different number", asy
   assert.equal(second.status, STATUS.PROPOSAL);
   assert.notEqual(second.buyerPercent, asking.provisional.buyerPercent,
     "the answer changed nothing, so the question was decorative");
+});
+
+// --- the trigger ---
+
+// ⭐ One trigger: a dispute exists. Not delivery state, not evidence quality,
+// not which rung the case resembles. A rule that decided which disputes
+// deserved mediation would be tracking-derived policy sitting exactly where the
+// bounds exist to keep it out — rungs are outcomes, not code paths.
+test("mediation runs on a record with a dispute, whoever raised it", () => {
+  for (const by of ["watchdog", "buyer", undefined]) {
+    assert.equal(shouldMediate({ disputeRaisedAt: 0, disputeRaisedBy: by }), true, `raised by ${by}`);
+  }
+});
+
+test("mediation runs on no record without a dispute", () => {
+  assert.equal(shouldMediate({ redeemedAt: 0, disputePeriodMs: 7 * DAY }), false);
+  assert.equal(shouldMediate({ disputeRaisedAt: null }), false);
+  assert.equal(shouldMediate({}), false);
+  assert.equal(shouldMediate(null), false);
+});
+
+// ⚠️ disputeRaisedAt is compared against null, not truthiness. A timestamp of 0
+// is a real one, and the rest of this codebase pins that behaviour down for the
+// same reason.
+test("a dispute raised at the epoch is still a dispute", () => {
+  assert.equal(shouldMediate({ disputeRaisedAt: 0 }), true);
+});
+
+// Every *open* dispute. These are the two terminal facts the decision function
+// already treats as ending a case: rung four has it, or it is over.
+test("a case a person already has, or one already finished, is not mediated", () => {
+  assert.equal(shouldMediate({ disputeRaisedAt: 0, escalatedAt: 5 }), false);
+  assert.equal(shouldMediate({ disputeRaisedAt: 0, finalisedAt: 5 }), false);
 });
