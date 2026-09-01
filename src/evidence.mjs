@@ -7,6 +7,7 @@
 // round.
 
 import { createHash } from "node:crypto";
+import { parseEventTime } from "./store.mjs";
 
 export const PROVENANCE = Object.freeze(["carrier", "buyer", "seller", "listing", "chain"]);
 
@@ -37,8 +38,32 @@ export function bundleHash(items) {
   return createHash("sha256").update(JSON.stringify(canonical(items))).digest("hex");
 }
 
-function item(kind, provenance, authored, content, n) {
-  return { id: `${PREFIX[kind]}-${n}`, kind, provenance, visibility: "shared", authored, content };
+// ⚠️ Every source says when it happened in its own vocabulary. A captured
+// carrier event carries `occurrenceDatetime` (and `datetime`, which is the same
+// wall clock mislabelled as UTC — src/store.mjs settles which is right); an
+// authored message fixture carries a plain numeric `at`. Normalising that once,
+// here, is what lets ordering and the case file's timeline read one field.
+//
+// Reading `at` off a raw carrier event — which is what this module did first —
+// yields undefined, so `a.at - b.at` is NaN, the sort silently no-ops and the
+// ids come out in whatever order the caller happened to pass.
+function momentOf(source) {
+  if (typeof source?.at === "number" && Number.isFinite(source.at)) return source.at;
+  return parseEventTime(source);
+}
+
+function byMoment(a, b) {
+  const at = momentOf(a) ?? 0;
+  const bt = momentOf(b) ?? 0;
+  if (at !== bt) return at - bt;
+  // Two events at the same instant would otherwise swap ids with the input
+  // order, which is the reordering guarantee failing in the one case where the
+  // timestamps cannot break the tie.
+  return String(a?.eventId ?? "").localeCompare(String(b?.eventId ?? ""));
+}
+
+function item(kind, provenance, authored, content, n, at = null) {
+  return { id: `${PREFIX[kind]}-${n}`, kind, provenance, visibility: "shared", authored, at, content };
 }
 
 export function assembleBundle({
@@ -54,8 +79,8 @@ export function assembleBundle({
 
   // Assembly order is fixed, and sorting inside each kind is what makes an id
   // stable when a caller hands the same evidence over in a different order.
-  const events = [...(tracking.events ?? [])].sort((a, b) => a.at - b.at);
-  events.forEach((e, i) => items.push(item("tracking_event", "carrier", false, e, i + 1)));
+  const events = [...(tracking.events ?? [])].sort(byMoment);
+  events.forEach((e, i) => items.push(item("tracking_event", "carrier", false, e, i + 1, momentOf(e))));
 
   if (offerTerms) items.push(item("offer_terms", "chain", false, offerTerms, 1));
 
@@ -66,8 +91,8 @@ export function assembleBundle({
     .forEach((p, i) => items.push(item("photo", "buyer", false, { path: p.path, sha256: p.sha256 }, i + 1)));
 
   [...messages]
-    .sort((a, b) => a.at - b.at)
-    .forEach((m, i) => items.push(item("message", m.from === "seller" ? "seller" : "buyer", true, m, i + 1)));
+    .sort(byMoment)
+    .forEach((m, i) => items.push(item("message", m.from === "seller" ? "seller" : "buyer", true, m, i + 1, momentOf(m))));
 
   if (listing) items.push(item("listing", "listing", true, listing, 1));
 

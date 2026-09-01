@@ -1,13 +1,21 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { ROOT } from "../src/env.mjs";
 import { assembleBundle, bundleHash, PROVENANCE } from "../src/evidence.mjs";
+
+// ⚠️ The fixture is the event store's own artefact, not a shape written to
+// match this module. Assembly's guarantees are about the events this system
+// actually captures, and a hand-written `{ at, milestone }` event proves them
+// only against itself — see fixtures/parcels.md for what parcel A is.
+const PARCEL_A = JSON.parse(
+  readFileSync(join(ROOT, "fixtures/events/8645991e-538a-40a2-8618-6f9d3777a6ae.json"), "utf8"),
+).events;
 
 const sources = (over = {}) => ({
   exchangeId: "241",
-  tracking: { events: [
-    { milestone: "in_transit", at: 1, description: "Accepted" },
-    { milestone: "delivered",  at: 2, description: "Delivered" },
-  ] },
+  tracking: { events: PARCEL_A.slice(0, 2) },
   offerTerms: { price: "200", currency: "USDC", disputePeriodMs: 604800000 },
   photos: [{ path: "fixtures/case/photos/inner.jpg", sha256: "aa" }],
   messages: [
@@ -85,4 +93,27 @@ test("hash is over content, not over object key order", () => {
   const a = bundleHash([{ id: "x", kind: "k", provenance: "chain", visibility: "shared", authored: false, content: { a: 1, b: 2 } }]);
   const b = bundleHash([{ content: { b: 2, a: 1 }, authored: false, visibility: "shared", provenance: "chain", kind: "k", id: "x" }]);
   assert.equal(a, b);
+});
+
+
+test("real captured events sort chronologically", () => {
+  const { items } = assembleBundle({ exchangeId: "241", tracking: { events: PARCEL_A } });
+  const events = items.filter((i) => i.kind === "tracking_event");
+  assert.equal(events.length, PARCEL_A.length);
+  const times = events.map((i) => i.at);
+  assert.ok(times.every((t) => typeof t === "number"), "an event has no usable time");
+  assert.deepEqual(times, [...times].sort((a, b) => a - b), "events are not in chronological order");
+  // trk-1 is the first thing that happened. Reverse-chronological ids would
+  // make every citation in every finding point at the wrong event.
+  assert.equal(events.at(-1).content.statusMilestone, "delivered");
+});
+
+test("real captured events keep their ids across a reordering", () => {
+  const forward = assembleBundle({ exchangeId: "241", tracking: { events: PARCEL_A } });
+  const reversed = assembleBundle({ exchangeId: "241", tracking: { events: [...PARCEL_A].reverse() } });
+  assert.deepEqual(
+    reversed.items.map((i) => [i.id, i.content.eventId]),
+    forward.items.map((i) => [i.id, i.content.eventId]),
+  );
+  assert.equal(reversed.hash, forward.hash);
 });
