@@ -8,6 +8,7 @@ import { createWatchdog } from "../src/watchdog.mjs";
 import { createExchangeStore } from "../src/exchanges.mjs";
 import { createAuthorisationStore } from "../src/authorisations.mjs";
 import { ACTIONS } from "../src/adapter.mjs";
+import { BUYER_STRINGS, parcelLine } from "../src/buyer-state.mjs";
 import { CorruptSnapshotError } from "../src/store.mjs";
 
 const HOUR = 3_600_000;
@@ -78,7 +79,11 @@ function harness({
     leadsFor: () => leads,
     now: () => PERIOD - HOUR,
   });
-  return { watchdog, exchanges, authorisations, relayed };
+  // `chainOver` is spread when readChainState is called, not when the harness is
+  // built, so a test can mutate it between sweeps to represent the protocol
+  // learning something — which is the only way to exercise a relay that landed
+  // after this process had already given up on confirming it.
+  return { watchdog, exchanges, authorisations, relayed, chain: chainOver };
 }
 
 test("a healthy window relays nothing", async () => {
@@ -169,7 +174,11 @@ test("a resolution window nearing expiry escalates and discards that authorisati
   assert.equal(results[0].action, ACTIONS.ESCALATE);
   assert.equal(relayed.length, 1);
   assert.equal(authorisations.has("42", "escalateDispute"), false);
-  assert.equal(authorisations.has("42", "raiseDispute"), true); // untouched
+  // Gone too, and not because escalating touched it: this exchange's dispute
+  // was raised by the buyer, and a dispute that exists cannot be raised again.
+  // Before F2 this asserted `true` — the raise signature outlived every
+  // possible use for it.
+  assert.equal(authorisations.has("42", "raiseDispute"), false);
   assert.ok(exchanges.get("42").escalatedAt);
 });
 
@@ -266,4 +275,122 @@ test("an unreadable tracker snapshot raises anyway, rather than disarming the ex
   assert.equal(result.action, ACTIONS.RAISE, "and the nearing deadline is still acted on");
   assert.equal(result.relayed, true);
   assert.equal(relayed.length, 1);
+});
+
+// ── The three end-to-end findings, 28 August ──────────────────────────────────
+//
+// All three came out of one real event: Infura timed out on
+// eth_getTransactionReceipt mid-relay for exchange 236, so tx.wait() threw on a
+// transaction that had actually landed. The read-back did its job and refused
+// to record an unconfirmed raise — but the dispute existed on chain from that
+// moment, and the next sweep had no way to know this watchdog was the one that
+// raised it.
+
+test("F1 · a raise that landed but could not be confirmed is still attributed to the watchdog", async () => {
+  // ⚠️ Buyer-facing, and the headline promise: disputeRaisedBy was written only
+  // on the confirmed path, so this dispute read as buyer-raised and the buyer
+  // was told "Let's sort this out" instead of "It hasn't arrived. We've raised
+  // this for you." — in the exact failure case the watchdog exists for.
+  const { watchdog, exchanges, chain } = harness({
+    confirmImpl: async () => { throw new Error("query timeout exceeded"); },
+  });
+
+  const [first] = await watchdog.sweep();
+  assert.equal(first.relayed, false, "unconfirmed, so not reported as relayed");
+  assert.equal(exchanges.get("42").disputeRaisedAt, null, "and no raise is recorded yet");
+
+  // The relay had in fact landed. The protocol says so on the next sweep.
+  chain.disputeRaisedAt = 1;
+  chain.disputeTimeoutAt = 90 * DAY;
+  await watchdog.sweep();
+
+  const record = exchanges.get("42");
+  assert.equal(record.disputeRaisedAt, 1, "the dispute is taken from chain");
+  assert.equal(record.disputeRaisedBy, "watchdog", "and attributed to the watchdog that attempted it");
+
+  // The half that actually matters. Attribution is a record field; this is the
+  // sentence the buyer reads because of it.
+  assert.equal(
+    parcelLine({ tracking: null, record }).text,
+    BUYER_STRINGS.raised_for_you,
+    "so the buyer is told the watchdog raised it for them"
+  );
+});
+
+test("F1 · a dispute nobody here attempted is not claimed by the watchdog", async () => {
+  // The other half: the attempt is what attributes it. Without one, a dispute
+  // appearing on chain is the buyer's own, and saying otherwise would tell them
+  // we did something we did not do.
+  const { watchdog, exchanges } = harness({
+    recordOver: { disputePeriodMs: 90 * DAY },
+    chainOver: { disputeRaisedAt: 1, disputeTimeoutAt: 90 * DAY },
+  });
+
+  await watchdog.sweep();
+
+  const record = exchanges.get("42");
+  assert.equal(record.disputeRaisedAt, 1);
+  assert.equal(record.disputeRaisedBy, null, "unattributed, which the buyer's line reads as their own");
+  assert.equal(parcelLine({ tracking: null, record }).text, BUYER_STRINGS.sorting_out);
+});
+
+test("F2 · a raise authorisation is discarded once a dispute exists on chain", async () => {
+  // "Discarded once spent" was implemented as "discarded once this process
+  // relayed it". A raise that landed without being confirmed left the signature
+  // on disk: replaying it reverts on the used nonce, so it was never dangerous,
+  // but a bearer instrument that can never be used again has no reason to exist.
+  const { watchdog, authorisations, chain } = harness({
+    confirmImpl: async () => { throw new Error("query timeout exceeded"); },
+  });
+
+  await watchdog.sweep();
+  assert.equal(authorisations.has("42", "raiseDispute"), true, "kept while it might still be needed");
+
+  chain.disputeRaisedAt = 1;
+  chain.disputeTimeoutAt = 90 * DAY;
+  await watchdog.sweep();
+
+  assert.equal(authorisations.has("42", "raiseDispute"), false, "spent the moment the dispute is on chain");
+});
+
+test("F2 · the buyer's own raise spends the authorisation too", async () => {
+  // It is the protocol's state that spends it, not who acted. A dispute cannot
+  // be raised twice, so this signature is dead whoever raised it.
+  const { watchdog, authorisations } = harness({
+    recordOver: { disputePeriodMs: 90 * DAY },
+    chainOver: { disputeRaisedAt: 1, disputeTimeoutAt: 90 * DAY },
+  });
+
+  await watchdog.sweep();
+
+  assert.equal(authorisations.has("42", "raiseDispute"), false);
+  assert.equal(authorisations.has("42", "escalateDispute"), true, "which is still live and still needed");
+});
+
+test("F3 · the record's authorisations array tracks the store", async () => {
+  // Harmless in itself — the watchdog reads the filesystem, never this array —
+  // but a record that misreports what protects an exchange is the wrong thing
+  // to hand an operator asking exactly that.
+  const { watchdog, exchanges, authorisations } = harness();
+  assert.deepEqual(exchanges.get("42").authorisations, []);
+
+  await watchdog.sweep();
+
+  assert.equal(authorisations.has("42", "raiseDispute"), false, "relayed and confirmed, so gone from disk");
+  assert.deepEqual(
+    exchanges.get("42").authorisations,
+    ["escalateDispute"],
+    "and gone from the record that claims to list it"
+  );
+});
+
+test("F3 · a finalised exchange reports no authorisations", async () => {
+  const { watchdog, exchanges } = harness({
+    recordOver: { authorisations: ["raiseDispute", "escalateDispute"] },
+    chainOver: { finalisedAt: 1_000 },
+  });
+
+  await watchdog.sweep();
+
+  assert.deepEqual(exchanges.get("42").authorisations, []);
 });
