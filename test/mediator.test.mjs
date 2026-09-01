@@ -109,3 +109,30 @@ test("cannot_settle is returned as it is", async () => {
   });
   assert.equal(out.status, STATUS.CANNOT_SETTLE);
 });
+
+// The recording stores what the model actually said, which is its job. The
+// policy that a final round may not present a question has to be applied on
+// the replay path too, or a recorded needs_evidence comes back past its
+// deadline as a question nobody can answer.
+test("a replayed question past the deadline still concludes", async () => {
+  const store = recordings();
+  store.save(bundle.hash, { model: "m", response: asking });
+  const out = await mediate({
+    bundle, record: record(), now: 7 * DAY,
+    deps: { call: async () => { throw new Error("must not call the model"); }, recordings: store },
+  });
+  assert.equal(out.replayed, true);
+  assert.equal(out.status, STATUS.PROPOSAL);
+  assert.equal(out.buyerPercent, 14);
+});
+
+test("a replayed question with rounds still available stays a question", async () => {
+  const store = recordings();
+  store.save(bundle.hash, { model: "m", response: asking });
+  const out = await mediate({
+    bundle, record: record(), now: 0, maxRounds: 3,
+    deps: { call: async () => { throw new Error("must not call the model"); }, recordings: store },
+  });
+  assert.equal(out.replayed, true);
+  assert.equal(out.status, STATUS.NEEDS_EVIDENCE);
+});

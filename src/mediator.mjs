@@ -43,14 +43,23 @@ export async function mediate({
   system = "",
   photos = [],
 }) {
-  const cached = deps.recordings.find(bundle.hash);
-  if (cached) return { ...cached.response, replayed: true };
-
   const deadline = deadlineFor(record, escalateLeadMs);
   // A round that cannot be answered before the deadline must not ask for
   // anything, so it is run as a final round and concludes on what it has.
   const outOfTime = deadline != null && now >= deadline;
   const final = outOfTime || round >= maxRounds;
+
+  // ⚠️ Decided before the cache is consulted, and applied to a replay too. A
+  // recording holds what the model actually said - that is what makes it a
+  // faithful replay - so the rule that a final round may not present a question
+  // has to live here rather than in what gets written. Returning the recording
+  // untouched would hand back an unanswerable question past the very deadline
+  // this logic exists to respect.
+  const cached = deps.recordings.find(bundle.hash);
+  if (cached) {
+    const replayed = final ? concludeFrom(cached.response) : cached.response;
+    return { ...replayed, replayed: true };
+  }
 
   let result = await deps.call({ bundle, system, photos, final });
   let check = checkProposal(result, bundle);
