@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "description": "Buy from a stranger. Keep your money until it's sorted.",
+  "license": "Apache-2.0",
   "type": "module",
   "engines": {
     "node": ">=22"
