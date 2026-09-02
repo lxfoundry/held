@@ -67,6 +67,84 @@ export function photoPathsFor(round) {
   return (ROUNDS[round] ?? []).map((name) => PHOTOS[name].path);
 }
 
+// The round a case holds before it has been asked for anything.
+export const OPENING_ROUND = "1";
+
+// The round a case reaches once `name` is the photograph that has been added to
+// it — the whole of what adding a photograph does here. It is the opening round
+// plus one photograph, and which one is the branch choice: `carton` gives round
+// 2, `carton-crushed` gives 2b.
+//
+// ⭐ Derived from ROUNDS rather than tabulated beside them. A second table
+// would be a second place the same mapping is stated, and a table that
+// disagrees with ROUNDS fails silently: the wrong round writes the wrong
+// evidence and every caller still reports success. A search over the rounds
+// themselves cannot disagree with them.
+//
+// Undefined for a photograph no round adds to the opening one — `inner`, which
+// the opening round already holds, and anything that is not a photograph at
+// all. It is not an answer, and the caller decides what that means.
+export function roundAdding(name) {
+  const opening = ROUNDS[OPENING_ROUND];
+  return Object.keys(ROUNDS).find((round) => {
+    const names = ROUNDS[round];
+    return (
+      names.length === opening.length + 1 &&
+      names[opening.length] === name &&
+      opening.every((held, i) => names[i] === held)
+    );
+  });
+}
+
+// The photographs that can be added to a case standing at the opening round, in
+// the order the rounds declare them. The first is the branch taken when nobody
+// names one.
+//
+// ⭐ Derived from ROUNDS through roundAdding, for the reason roundAdding itself
+// gives: a second table would be a second place the same mapping is stated, and
+// one that disagreed would fail silently. Adding a branch to ROUNDS puts it on
+// this list; it never has to be added twice.
+//
+// ⚠️ The order is the declaration order of ROUNDS, so which branch is the
+// default is decided by where it sits in that table and nowhere else. Today
+// that is the intact carton, and the crushed one is reached by naming it.
+export function addablePhotos() {
+  return Object.keys(PHOTOS).filter((name) => roundAdding(name) !== undefined);
+}
+
+// The round a case currently stands at: the key in ROUNDS whose photographs are
+// exactly the ones it holds, in order — and `undefined` for a case holding
+// anything else, including a case holding none at all.
+//
+// ⭐ Derived from ROUNDS, for the third time and the same reason roundAdding
+// gives: a table of "what a case at round 2 looks like" would be a second
+// statement of what round 2 is, and one that disagreed would answer this
+// question wrongly while every caller still reported success.
+//
+// ⚠️ Read from the parsed case, never from its text. This is a question about
+// which photographs a case holds, and the answer must not turn on how the file
+// happens to be formatted — unlike applyPhotos, whose whole job is the text.
+export function roundStoodAt(caseRecord) {
+  const held = (caseRecord?.photos ?? []).map((photo) => photo?.path);
+  return Object.keys(ROUNDS).find((round) => {
+    const paths = photoPathsFor(round);
+    return paths.length === held.length && paths.every((path, i) => path === held[i]);
+  });
+}
+
+// Thrown when a fixture holds no photographs region this can replace. Named
+// rather than plain because it is the one failure here that is neither a bad
+// argument nor an absence: the file exists and parses, and its photographs are
+// in a shape a hand edit produced and this regex was written to refuse rather
+// than silently truncate. A caller cannot fix it, and neither can a buyer — it
+// is a broken fixture, and it says so.
+export class NoPhotosRegionError extends Error {
+  constructor() {
+    super("could not find the photos array — the fixture is edited by hand as well as by script");
+    this.name = "NoPhotosRegionError";
+  }
+}
+
 // Returns the fixture text with its photographs set to `round`. Throws rather
 // than reporting, so the caller owns how a failure reads.
 export function applyPhotos(text, round) {
@@ -75,7 +153,7 @@ export function applyPhotos(text, round) {
     throw new Error(`round must be ${Object.keys(ROUNDS).join(" or ")}, not ${JSON.stringify(round)}`);
   }
   if (!PHOTOS_BLOCK.test(text)) {
-    throw new Error("could not find the photos array — the fixture is edited by hand as well as by script");
+    throw new NoPhotosRegionError();
   }
   const rendered = names
     .map((name) => {

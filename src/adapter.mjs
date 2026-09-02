@@ -91,6 +91,16 @@ export function resolutionDueAt(record) {
       ms(id, "resolutionPeriodMs", record.resolutionPeriodMs);
 }
 
+// ⭐ Exported for the tests, and a pure function so they need no chain. The
+// protocol speaks basis points; the buyer's view speaks a percentage and an
+// amount, and only the two extremes are clean endings.
+export function outcomeFor(basisPoints) {
+  const buyerPercent = basisPoints / 100;
+  if (buyerPercent === 0) return { outcome: "paid", buyerPercent };
+  if (buyerPercent === 100) return { outcome: "returned", buyerPercent };
+  return { outcome: "split", buyerPercent };
+}
+
 export function decide({ tracking, record, now, leads }) {
   // ⚠️ Compared against null, not truthiness. These are timestamps, and a
   // timestamp of 0 is a real one — treating it as absent would silently ignore
