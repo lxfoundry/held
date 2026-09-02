@@ -1,0 +1,104 @@
+{
+  "bundleHash": "242b157bf69688420924c8eefc1dbc546c166ee64466361fa20fb91f8ea0c9a0",
+  "model": "claude-opus-5",
+  "response": {
+    "status": "needs_evidence",
+    "findings": [
+      {
+        "statement": "Before buying, the buyer asked specifically about box condition and said it was most of what they were paying for; the seller answered that the sets had been stored in a cupboard since new and that the boxes were fine.",
+        "evidenceIds": [
+          "msg-1",
+          "msg-2"
+        ]
+      },
+      {
+        "statement": "The listing described four retired sets as \"Used - like new. Boxes in good condition.\" at a price of 200, so box condition is part of what was promised.",
+        "evidenceIds": [
+          "lst-1"
+        ]
+      },
+      {
+        "statement": "The parcel moved through the post normally and was delivered on 28 August 2026, with no carrier record of damage or mishandling.",
+        "evidenceIds": [
+          "trk-1",
+          "trk-5",
+          "trk-7"
+        ]
+      },
+      {
+        "statement": "The buyer reported the problem the same day the parcel was delivered, saying one box had a badly crushed corner that had split open.",
+        "evidenceIds": [
+          "trk-7",
+          "msg-3"
+        ]
+      },
+      {
+        "statement": "The single photo provided shows one set's box (LEGO Architecture London 21034) with a crushed and split top corner and some edge scuffing; the box is otherwise intact and the photo says nothing about the other three boxes or about the contents.",
+        "evidenceIds": [
+          "pho-1"
+        ]
+      },
+      {
+        "statement": "The seller maintains the parcel was in good condition when it was sent and was carefully packed, but has not provided any image of the sets or the packing.",
+        "evidenceIds": [
+          "msg-4"
+        ]
+      }
+    ],
+    "provisional": {
+      "buyerPercent": 25,
+      "reasoning": "Box condition was expressly promised and was the main thing the buyer was paying for, and one of the four boxes arrived with a crushed, split corner. That is a real shortfall, but on the evidence it affects one box out of four and the sets themselves appear unaffected, so a partial refund of about a quarter of the money reflects the loss of value while leaving the seller the bulk of a purchase the buyer keeps and can still use."
+    },
+    "requests": [
+      {
+        "what": "One or two more photos taken of the delivery as it arrived: the outer postal packaging (including any crushing or tears and the packing material inside), and all four set boxes laid out together so each one's corners and edges can be seen.",
+        "whyItMatters": "The photo already provided shows one box's corner and nothing else. How many of the four boxes are affected, and what state the outer packaging was in, decides how much of the purchase fell short of what was described and how the damage most likely happened.",
+        "whoCanProvide": "buyer",
+        "wouldChange": [
+          {
+            "answer": "Outer packaging shows crushing in the same area and the other three boxes are undamaged",
+            "implies": "Damage happened in the post and is limited to one box of four",
+            "split": 20
+          },
+          {
+            "answer": "Several or all four boxes show crushed or split corners",
+            "implies": "The shortfall covers most of what was bought, not a single item",
+            "split": 50
+          },
+          {
+            "answer": "Outer packaging is undamaged and thinly padded, with one box crushed inside",
+            "implies": "The box was either already damaged or inadequately protected before it was sent",
+            "split": 35
+          },
+          {
+            "answer": "No further photos provided",
+            "implies": "Assessment rests on the single existing image",
+            "split": 25
+          }
+        ]
+      },
+      {
+        "what": "Any photo you took of the four sets or of the parcel while packing it, before you posted it, showing the corners of the boxes and how they were padded.",
+        "whyItMatters": "The buyer's photo shows the box as it is now, and nothing yet shows what state it was in when it left you or how it was protected. An image from before posting is the only thing that speaks to that.",
+        "whoCanProvide": "seller",
+        "wouldChange": [
+          {
+            "answer": "Pre-posting photo shows the box corner already crushed or worn",
+            "implies": "The description of the boxes as in good condition was inaccurate",
+            "split": 45
+          },
+          {
+            "answer": "Pre-posting photo shows all four boxes clean and well cushioned in the parcel",
+            "implies": "The damage most likely arose in the post despite reasonable packing",
+            "split": 15
+          },
+          {
+            "answer": "No pre-posting photo exists",
+            "implies": "Nothing displaces the buyer's account of the condition on arrival",
+            "split": 25
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -274,13 +274,6 @@ if (roundTwoUnready) {
 }
 if (!recorded) {
   warn(`bundle ${bundle.hash.slice(0, 12)} has NO recording: mediate will stop, or call the API with --execute`);
-  // The one cause that leaves no trace in the fixture, so it is named rather
-  // than left to be found. Everything else that moves the hash is something an
-  // operator did on purpose and can see.
-  if (record.disputeRaisedAt != null && record.disputeRaisedAt % 1000 === 0) {
-    warn(`disputeRaisedAt is ${record.disputeRaisedAt}, a whole second — a watchdog sweep has merged it back`);
-    warn("from chain over the millisecond value, and that alone is enough to miss every recording");
-  }
 } else if (final && recorded.response?.status === STATUS.NEEDS_EVIDENCE) {
   warn(`bundle ${bundle.hash.slice(0, 12)} is recorded, but round ${nextRound} is final and the recording asks a`);
   warn("question — so it comes back through the conclude path: the provisional split under");
@@ -289,6 +282,21 @@ if (!recorded) {
   warn("record a real final-round answer, or raise MEDIATOR_MAX_ROUNDS so this round may still ask.");
 } else {
   ok(`bundle ${bundle.hash.slice(0, 12)} is recorded — this round replays with no API call and no network`);
+}
+
+// ⚠️ Reported whether or not the hash is currently recorded, because the run it
+// matters on is the one that still replays. The dispute instant belongs to the
+// protocol and arrives as whole seconds — scripts/watchdog.mjs reads it as
+// Number(disputed) * 1000. A value carrying milliseconds is the local fallback
+// in src/disputes.mjs, stamped when the read-back did not confirm in time; the
+// chain's own value is a different number, and the next sweep merges it over
+// this one. Every recording keyed on a bundle holding the fallback is missed at
+// that moment, and nothing in the fixture shows why.
+if (record.disputeRaisedAt != null && record.disputeRaisedAt % 1000 !== 0) {
+  console.log("");
+  warn(`disputeRaisedAt is ${record.disputeRaisedAt}, which carries milliseconds. The protocol's value is a`);
+  warn("whole second, so this is the local fallback and the next watchdog sweep will overwrite it —");
+  warn("moving the bundle hash and missing every recording keyed on it. Heal it before recording.");
 }
 
 if (!execute) {
