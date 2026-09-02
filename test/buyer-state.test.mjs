@@ -1,7 +1,7 @@
 // test/buyer-state.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { moneyLine, parcelLine, BUYER_STRINGS } from "../src/buyer-state.mjs";
+import { moneyLine, parcelLine, BUYER_STRINGS, fill } from "../src/buyer-state.mjs";
 
 const record = (over = {}) => ({
   exchangeId: "1",
@@ -96,6 +96,33 @@ test("an escalated dispute says a person is looking at it", () => {
     record: record({ disputeRaisedAt: 1, disputeRaisedBy: "buyer", escalatedAt: 2 }),
   });
   assert.equal(line.key, "with_a_person");
+});
+
+test("a split ending states the amount that came back, not that the money was returned", () => {
+  const settled = record({ finalisedAt: 1, outcome: "split", buyerPercent: 20 });
+  const line = moneyLine(settled, { priceText: "200", currency: "£" });
+  assert.equal(line.key, "split");
+  assert.equal(line.text, "£40 has come back to you.");
+});
+
+test("0 and 100 percent remain the two clean endings", () => {
+  assert.equal(moneyLine(record({ finalisedAt: 1, outcome: "paid", buyerPercent: 0 })).key, "paid");
+  assert.equal(moneyLine(record({ finalisedAt: 1, outcome: "returned", buyerPercent: 100 })).key, "returned");
+});
+
+test("held survives, and is what an unfinalised exchange reads whatever else is set", () => {
+  assert.equal(moneyLine(record({ outcome: null })).key, "held");
+  assert.equal(moneyLine(record({ disputeRaisedAt: 1, disputeRaisedBy: "buyer" })).key, "held");
+});
+
+test("a split with no price says the fraction rather than inventing an amount", () => {
+  const line = moneyLine(record({ finalisedAt: 1, outcome: "split", buyerPercent: 20 }));
+  assert.equal(line.text, "20% has come back to you.");
+});
+
+test("fill replaces every placeholder and leaves nothing unresolved", () => {
+  assert.equal(fill("paid on {date}", { date: "19 September" }), "paid on 19 September");
+  assert.throws(() => fill("paid on {date}", {}), /date/);
 });
 
 test("no user-visible string contains protocol vocabulary", () => {
