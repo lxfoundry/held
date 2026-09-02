@@ -290,6 +290,21 @@ test("end to end: attaching the branch already in the slot changes nothing", asy
   assert.equal(written(), otherBranch);
 });
 
+// ⚠️ Never a 200. A photograph is added to a case that exists; a case input
+// written by this action alone would hold photographs and neither the listing
+// nor the message thread, and the buyer's screen would report an action that
+// wrote nothing anyone reads as having gone through.
+test("end to end: a purchase with no case input is refused rather than given one", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "held-buyer-photos-"));
+  const caseInput = createCaseInputStore(dir);
+  const handler = app({
+    actions: { photos: ({ exchangeId, body }) => caseInput.addPhoto(exchangeId, body.photo) },
+  });
+  const res = await addPhoto(handler, "carton");
+  assert.notEqual(res.status, 200);
+  assert.equal(caseInput.read("241"), null);
+});
+
 // ⚠️ A photo id names a round, and the rounds are a table of acceptable strings
 // held in source — no path is built from the id and nothing is read off disk to
 // decide, so a traversal attempt is refused for naming no round at all.
