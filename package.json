@@ -23,7 +23,8 @@
     "replay": "node scripts/replay.mjs",
     "raise": "node scripts/raise-dispute.mjs",
     "mediate": "node scripts/mediate.mjs",
-    "buyer": "node src/buyer-server.mjs"
+    "buyer": "node src/buyer-server.mjs",
+    "demo-reset": "node scripts/demo-reset.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.122.0",
