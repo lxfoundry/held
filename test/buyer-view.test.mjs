@@ -23,6 +23,23 @@ const view = (over = {}) =>
   viewFor({ record: record(), tracking: tracking(), caseRecord: null, listing,
             events: [], photos: 0, allowConfirm: true, ...over });
 
+test("ACTIONS.PHOTO is the literal route segment the client posts to", () => {
+  // Pinned as a literal, not compared against itself: every other test refers
+  // to ACTIONS.PHOTO symbolically, so a regression to "photo" — the original,
+  // 404-causing value — would pass the whole suite except this one line.
+  assert.equal(ACTIONS.PHOTO, "photos");
+});
+
+test("item carries the listing's title and price, and a priceless listing states no price", () => {
+  const withPrice = view();
+  assert.equal(withPrice.item.title, "Four retired sets");
+  assert.equal(withPrice.item.price, "£200 · from a stranger");
+
+  const noPrice = view({ listing: { title: "Four retired sets", priceText: null, currency: "£" } });
+  assert.equal(noPrice.item.title, "Four retired sets");
+  assert.equal(noPrice.item.price, "");
+});
+
 test("in transit shows the timeline and offers nothing to do", () => {
   const v = view({ events: [{ occurrenceDatetime: "2026-09-02T09:00:00+01:00", status: "Shipment Received" }] });
   assert.equal(v.parcel.key, "on_its_way");
@@ -40,7 +57,7 @@ test("without the operator's arming, completing is present but disabled", () => 
   const v = view({ tracking: tracking({ current: "delivered", delivered: true }), allowConfirm: false });
   const complete = v.actions.find((a) => a.id === ACTIONS.COMPLETE);
   assert.equal(complete.enabled, false);
-  assert.equal(complete.reason, "BUYER_UI_ALLOW_CONFIRM is not set");
+  assert.equal(complete.reason, "This isn't available right now");
 });
 
 test("a raise the buyer made drops the timeline and opens the conversation", () => {
@@ -107,14 +124,33 @@ test("escalation shows the file and stops offering anything", () => {
   assert.deepEqual(v.actions, []);
 });
 
-test("⭐ every string the view emits comes from BUYER_STRINGS", async () => {
+test("⭐ every string the view emits — labels and reasons alike — comes from BUYER_STRINGS", async () => {
   const { BUYER_STRINGS } = await import("../src/buyer-state.mjs");
   // Placeholders are filled by the time they reach here, so compare on the
   // literal segments a template is made of rather than on the template.
   const known = Object.values(BUYER_STRINGS).flatMap((s) => s.split(/\{\w+\}/).filter((p) => p.trim().length > 2));
-  const v = view({ tracking: tracking({ current: "delivered", delivered: true }) });
-  for (const text of [v.money.text, v.parcel.text, v.notice, ...v.actions.map((a) => a.label)]) {
-    if (text == null) continue;
-    assert.ok(known.some((k) => text.includes(k.trim())), `"${text}" is not built from BUYER_STRINGS`);
+
+  const states = [
+    // Delivered, undisputed, and unarmed: this is the exact state that let a
+    // raw literal reach `reason` undetected before — the earlier version of
+    // this test only ever looked at `label`, never `reason`.
+    view({ tracking: tracking({ current: "delivered", delivered: true }), allowConfirm: false }),
+    // A proposal: exercises the settle/decline `reason` strings too.
+    view({
+      tracking: tracking({ current: "delivered", delivered: true }),
+      record: record({ disputeRaisedAt: 1, disputeRaisedBy: "buyer" }),
+      caseRecord: { exchangeId: "241", rounds: [{ result: { status: "proposal",
+        buyerPercent: 20, reasoning: "The carton is intact." } }] },
+    }),
+    // A split ending.
+    view({ record: record({ finalisedAt: 1, outcome: "split", buyerPercent: 20 }) }),
+  ];
+
+  for (const v of states) {
+    const texts = [v.money.text, v.parcel.text, v.notice, ...v.actions.flatMap((a) => [a.label, a.reason])];
+    for (const text of texts) {
+      if (text == null) continue;
+      assert.ok(known.some((k) => text.includes(k.trim())), `"${text}" is not built from BUYER_STRINGS`);
+    }
   }
 });

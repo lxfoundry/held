@@ -29,6 +29,7 @@ export const BUYER_STRINGS = {
   decline_proposal: "No thanks",
   decline_unavailable: "Declining isn't available yet",
   settle_unavailable: "Settling isn't available yet",
+  complete_unavailable: "This isn't available right now",
 
   on_its_way: "On its way",
   needs_you: "The courier couldn't deliver it — it needs you",

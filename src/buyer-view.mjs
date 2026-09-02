@@ -106,7 +106,10 @@ function actionsFor({ tracking, record, latest, allowConfirm }) {
         label: BUYER_STRINGS.arrived_all_good,
         primary: true,
         enabled: allowConfirm,
-        reason: allowConfirm ? null : "BUYER_UI_ALLOW_CONFIRM is not set",
+        // ⚠️ The operator diagnostic (which env var, and that it's unset) is
+        // Task 6's job to log server-side. This module emits no copy of its
+        // own — the buyer only ever sees "the tool is unconfigured".
+        reason: allowConfirm ? null : BUYER_STRINGS.complete_unavailable,
       },
       { id: ACTIONS.RAISE, label: BUYER_STRINGS.something_wrong, primary: false, enabled: true, reason: null },
     ];
