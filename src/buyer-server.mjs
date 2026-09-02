@@ -14,7 +14,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { viewFor } from "./buyer-view.mjs";
 import { NotBuiltError } from "./resolution.mjs";
-import { UnknownPhotoError } from "./case-input.mjs";
+import { NoCaseInputError, UnknownPhotoError } from "./case-input.mjs";
 import { loadEnv, ROOT } from "./env.mjs";
 
 // A few kilobytes, never more: the photos body is one short JSON object
@@ -213,7 +213,12 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
       // including a traversal attempt, which is simply another id that is not
       // on the list. src/case-input.mjs decides that against a table in source,
       // so nothing is read off disk to answer it.
+      // Both are absences, not failures: the photograph names nothing that can
+      // be added, or there is no case for it to join. A 500 here would report a
+      // broken component for a request that was simply about something that
+      // does not exist.
       if (err instanceof UnknownPhotoError) return send(res, 404, { error: err.message });
+      if (err instanceof NoCaseInputError) return send(res, 404, { error: err.message });
       console.error(err);
       return send(res, 500, { error: err.message });
     }

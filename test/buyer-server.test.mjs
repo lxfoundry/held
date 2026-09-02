@@ -301,7 +301,9 @@ test("end to end: a purchase with no case input is refused rather than given one
     actions: { photos: ({ exchangeId, body }) => caseInput.addPhoto(exchangeId, body.photo) },
   });
   const res = await addPhoto(handler, "carton");
-  assert.notEqual(res.status, 200);
+  // 404, pinned: there is no case here to add to. A 500 would report a
+  // broken component for a request that was about something absent.
+  assert.equal(res.status, 404);
   assert.equal(caseInput.read("241"), null);
 });
 

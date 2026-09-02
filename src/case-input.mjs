@@ -38,6 +38,17 @@ export class UnknownPhotoError extends Error {
   }
 }
 
+// Thrown when the case a photograph would join does not exist. A named class
+// rather than a plain Error because a caller has to be able to tell "there is
+// nothing here to add to" from "this component is broken" — the same
+// distinction an unwired action draws by answering 501 instead of 500.
+export class NoCaseInputError extends Error {
+  constructor(id) {
+    super(`no case input at ${id}.json — a photograph is added to a case that exists, never used to create one`);
+    this.name = "NoCaseInputError";
+  }
+}
+
 export function createCaseInputStore(dir) {
   mkdirSync(dir, { recursive: true });
 
@@ -88,9 +99,7 @@ export function createCaseInputStore(dir) {
       // the buyer's view omits for having no listing, and the mediator reads as
       // a case with no thread. An absent case input is the operator's to fix,
       // and refusing says so where a plausible-looking file would not.
-      throw new Error(
-        `no case input at ${safeId(exchangeId)}.json — a photograph is added to a case that exists, never used to create one`
-      );
+      throw new NoCaseInputError(safeId(exchangeId));
     }
 
     const after = applyPhotos(before, round);

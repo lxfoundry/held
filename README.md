@@ -272,8 +272,9 @@ URL:
 - `?photo=<photoId>` — which photograph the "add evidence" action attaches, once a dispute is open
   and evidence has been requested. The view never guesses which photograph to send on the buyer's
   behalf: absent, the action is drawn disabled and says so, rather than vanishing from a screen
-  that is asking the buyer for a photograph. The id names one of the photographs a case is defined
-  to be able to hold; anything else is refused, and the case file is left alone.
+  that is asking the buyer for a photograph. The id names one of the photographs a case can be
+  *added* — the opening round's own evidence is already on file and is refused like anything else,
+  and the case file is left alone.
 
 Environment variables, read once at startup:
 
