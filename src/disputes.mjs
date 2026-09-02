@@ -56,7 +56,20 @@ export async function raiseFor({
   // buyer's line is gated on disputeRaisedAt, which is set below and only once
   // the protocol has confirmed. Until then the record says who would have
   // raised it, not that it was raised.
-  exchanges.update(exchangeId, { disputeRaisedBy: by, disputeRaiseAttemptedAt: now() });
+  //
+  // ⚠️ Unless that gate has already opened. A watchdog raise completing between
+  // the caller's pre-flight and this line sets the date, and taking the name
+  // over it turns "we've raised this for you" into "let's sort this out" for a
+  // raise the buyer never made. The relay then reverts on the spent nonce, so
+  // the guard below never runs, and the watchdog's own guard wants the name
+  // empty — nothing repairs it afterwards. Same rule as below, one step
+  // earlier: whoever recorded a completed raise owns it. The attempt is
+  // recorded either way, since that is what the next sweep reads.
+  const before = exchanges.get(exchangeId);
+  exchanges.update(exchangeId, {
+    ...(before?.disputeRaisedAt == null ? { disputeRaisedBy: by } : {}),
+    disputeRaiseAttemptedAt: now(),
+  });
 
   await relay(stored);
 

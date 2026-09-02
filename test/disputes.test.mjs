@@ -182,6 +182,42 @@ test("a raise already recorded by the watchdog is not relabelled as the buyer's"
   );
 });
 
+test("a raise the watchdog completed before this one started keeps its attribution", async () => {
+  // The third write that claims attribution, and the one the guard above did not
+  // reach. The pre-relay write is unconditional, and its comment argues it is
+  // safe because the buyer's line is gated on disputeRaisedAt — but that gate is
+  // exactly what has already opened here. The watchdog completed a raise, so the
+  // date is set, and relabelling it turns "We've raised this for you" into "Let's
+  // sort this out" for a raise the buyer never made.
+  //
+  // ⚠️ Nothing repairs it afterwards: the relay reverts on the spent nonce, so
+  // the post-confirm guard never runs, and the watchdog's own guard requires
+  // disputeRaisedBy to be null.
+  const h = harness({ recordOver: { disputeRaisedAt: 1, disputeRaisedBy: "watchdog" } });
+  await assert.rejects(
+    raiseFor({
+      exchangeId: "241",
+      by: "buyer",
+      exchanges: h.exchanges,
+      authorisations: h.authorisations,
+      relay: async () => { throw new Error("nonce already used"); },
+      confirm: h.confirm,
+      now: () => 5 * DAY,
+    }),
+    /nonce already used/
+  );
+  const record = h.record();
+  assert.equal(record.disputeRaisedBy, "watchdog", "the watchdog's raise was relabelled as the buyer's");
+  assert.equal(
+    parcelLine({ tracking: null, record }).key,
+    "raised_for_you",
+    "the buyer is being told to sort out a raise the watchdog made for them"
+  );
+  // ⭐ The attempt is still recorded. It is what stops the next sweep finding a
+  // dispute this system has no attempt on record for and leaving it unattributed.
+  assert.equal(record.disputeRaiseAttemptedAt, 5 * DAY);
+});
+
 // ── The recorded time is the protocol's, not this process's ───────────────────
 
 test("the buyer's raise is recorded at the time the protocol gives, not this process's clock", async () => {
