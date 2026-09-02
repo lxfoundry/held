@@ -90,6 +90,10 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
       });
       req.on("end", () => resolvePromise(Buffer.concat(chunks).toString("utf8")));
       req.on("error", reject);
+      // ⚠️ Fix round 1, item 3: src/receiver.mjs's readBody also rejects on
+      // "aborted" — without it, a client that disconnects mid-body leaves this
+      // promise pending forever, and run() never sends a response at all.
+      req.on("aborted", () => reject(Object.assign(new Error("client aborted"), { status: 400 })));
     });
   }
 

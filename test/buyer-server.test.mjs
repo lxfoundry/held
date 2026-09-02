@@ -191,17 +191,32 @@ test("an unknown photo id raised by the action answers 404, not 500", async () =
 
 // End to end: the real store wired exactly as the entry point wires it, not a
 // fake action — this is what proves the route is reachable, not just each
-// piece in isolation.
-function realPhotosApp() {
+// piece in isolation. `seed`, when given, is written as <dir>/<id>.json before
+// the store is created — a pre-existing case input, the same as a real one.
+function realPhotosApp({ seed } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "held-buyer-photos-"));
   mkdirSync(join(dir, "photos"), { recursive: true });
   writeFileSync(join(dir, "photos", "carton.jpg"), "fixture");
+  writeFileSync(join(dir, "photos", "carton-crushed.jpg"), "fixture");
+  if (seed) writeFileSync(join(dir, `${seed.exchangeId}.json`), JSON.stringify(seed, null, 2));
   const caseInput = createCaseInputStore(dir);
   const handler = app({
     actions: { photos: ({ exchangeId, body }) => caseInput.addPhoto(exchangeId, body.photo) },
   });
   return { handler, caseInput };
 }
+
+// The 238-shaped record fixtures/case/238.json actually carries: id "carton"
+// already names carton-crushed.jpg, not a file called "carton". A test that
+// only ever starts from an empty photos array can never see the bug this
+// causes — see fix round 1, item 2.
+const seed238 = {
+  exchangeId: "238",
+  photos: [
+    { id: "inner", path: "fixtures/case/photos/inner.jpg", media_type: "image/jpeg" },
+    { id: "carton", path: "fixtures/case/photos/carton-crushed.jpg", media_type: "image/jpeg" },
+  ],
+};
 
 test("end to end: attaching a photograph appends it and answers 200", async () => {
   const { handler, caseInput } = realPhotosApp();
@@ -219,6 +234,24 @@ test("end to end: attaching the same photograph twice leaves one entry, still 20
   assert.equal(first.status, 200);
   assert.equal(second.status, 200);
   assert.equal(caseInput.read("241").photos.length, 1);
+});
+
+test("end to end: attaching a branch already present under a different id does not duplicate it", async () => {
+  const { handler, caseInput } = realPhotosApp({ seed: seed238 });
+  const res = await call(
+    handler, "POST", "/api/purchases/238/photos", JSON.stringify({ photo: "carton-crushed" }),
+  );
+  assert.equal(res.status, 200);
+  assert.equal(caseInput.read("238").photos.length, 2);
+});
+
+test("end to end: a different branch photograph can still be attached even though its slot id is taken", async () => {
+  const { handler, caseInput } = realPhotosApp({ seed: seed238 });
+  const res = await call(handler, "POST", "/api/purchases/238/photos", JSON.stringify({ photo: "carton" }));
+  assert.equal(res.status, 200);
+  const photos = caseInput.read("238").photos;
+  assert.equal(photos.length, 3);
+  assert.ok(photos.some((p) => p.path === "fixtures/case/photos/carton.jpg"));
 });
 
 test("end to end: a traversal attempt is 404 and writes nothing", async () => {

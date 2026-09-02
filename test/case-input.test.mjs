@@ -26,6 +26,27 @@ function freshDir() {
   return dir;
 }
 
+// A 238-shaped record: the committed fixtures/case/238.json carries exactly
+// this id/path divergence — id "carton" already points at carton-crushed.jpg,
+// never at a file named "carton". Never written into fixtures/case/ itself;
+// this is a hand-written copy of that shape into a temporary directory.
+function seed238(dir) {
+  writeFileSync(
+    join(dir, "238.json"),
+    JSON.stringify(
+      {
+        exchangeId: "238",
+        photos: [
+          { id: "inner", path: "fixtures/case/photos/inner.jpg", media_type: "image/jpeg" },
+          { id: "carton", path: "fixtures/case/photos/carton-crushed.jpg", media_type: "image/jpeg" },
+        ],
+      },
+      null,
+      2,
+    ),
+  );
+}
+
 test("read on a case with no file yet is null, not an error", () => {
   assert.equal(createCaseInputStore(freshDir()).read("241"), null);
 });
@@ -59,6 +80,41 @@ test("appending an already-present photo is a no-op, not a duplicate", () => {
     readFileSync(join(dir, "241.json"), "utf8"),
     before,
     "a repeat add must not even rewrite the file",
+  );
+});
+
+// Fix round 1, item 1: the committed fixtures show `id` is a logical slot,
+// not a filename stem — 238.json already uses id "carton" for
+// carton-crushed.jpg. Dedup must be keyed on `path`, or these two cases break.
+test("attaching a branch already present under a different id does not duplicate it", () => {
+  const dir = freshDir();
+  seed238(dir);
+  const store = createCaseInputStore(dir);
+
+  const record = store.addPhoto("238", "carton-crushed");
+
+  assert.equal(
+    record.photos.length,
+    2,
+    "carton-crushed.jpg is already in the case under id \"carton\" — this must be a no-op",
+  );
+});
+
+test("a different branch photograph can still be attached even though its slot id is taken", () => {
+  const dir = freshDir();
+  seed238(dir);
+  const store = createCaseInputStore(dir);
+
+  const record = store.addPhoto("238", "carton");
+
+  assert.equal(
+    record.photos.length,
+    3,
+    "carton.jpg is a different file from the one already recorded under id \"carton\" and must be attachable",
+  );
+  assert.ok(
+    record.photos.some((p) => p.path === "fixtures/case/photos/carton.jpg"),
+    "the good-branch photograph must actually be present",
   );
 });
 

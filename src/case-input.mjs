@@ -78,22 +78,26 @@ export function createCaseInputStore(dir) {
 
     const existing = read(exchangeId) ?? { exchangeId: String(exchangeId), photos: [] };
     const photos = existing.photos ?? [];
+    const path = `fixtures/case/photos/${photoId}${JPEG_EXT}`;
 
-    // Idempotent, and deliberately a true no-op rather than a rewrite of
-    // identical content — the same reasoning src/store.mjs gives for skipping
-    // a redelivery of events already held: the evidence bundle downstream is
-    // content-hashed, so a duplicate entry would change a hash without
-    // changing the evidence, and rewriting the file for no benefit only
-    // widens the torn-write window.
-    if (photos.some((p) => p.id === photoId)) return existing;
+    // ⚠️ Fix round 1, item 1: keyed on `path`, never on `id`. `id` is a
+    // logical slot ("the outer carton photograph"), not a filename stem — the
+    // committed fixtures show the same id ("carton") pointing at carton.jpg in
+    // one case and carton-crushed.jpg in another, because the two are two
+    // branches of the same scenario. `path` is what scripts/mediate.mjs
+    // actually keys evidence on (read the bytes from, hash, and label the
+    // model's attachment by) — nothing downstream reads this store's own `id`
+    // field at all — so path is the only identity "already here" can mean.
+    // Deduping on id instead would both let two different photographs share
+    // one id as if they were the same evidence, and block a genuinely new
+    // photograph from ever being attached because some other branch already
+    // used its id for a different file.
+    if (photos.some((p) => p.path === path)) return existing;
 
     const record = {
       ...existing,
       exchangeId: existing.exchangeId ?? String(exchangeId),
-      photos: [
-        ...photos,
-        { id: photoId, path: `fixtures/case/photos/${photoId}${JPEG_EXT}`, media_type: "image/jpeg" },
-      ],
+      photos: [...photos, { id: photoId, path, media_type: "image/jpeg" }],
     };
 
     writeAtomic(pathFor(exchangeId), `${JSON.stringify(record, null, 2)}\n`);
