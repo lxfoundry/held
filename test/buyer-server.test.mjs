@@ -283,6 +283,33 @@ test("a non-error rejection from an action still answers, rather than hanging th
   assert.equal(res.status, 500);
 });
 
+// I-2: the list route already renders each record inside its own try (spec
+// §11); the detail route did not, so one unreadable store answered 500 — a
+// broken server — where the list answers "that purchase is not available".
+test("a store that cannot be read for one purchase is a 404, not a 500", async () => {
+  const res = await call(
+    app({ listings: { read: () => { throw new Error("the listing file is unreadable"); } } }),
+    "GET", "/api/purchases/241",
+  );
+  assert.equal(res.status, 404);
+});
+
+// Promoted minor 3: the client polls every 2 seconds, so a diagnostic inside
+// modelFor() is written ~30 times a minute, forever, for a purchase whose
+// listing is simply not there.
+test("a purchase with no listing is logged once, however often it is polled", async () => {
+  const handler = app({ listings: { read: () => null } });
+  const written = [];
+  const real = console.error;
+  console.error = (...args) => written.push(args.join(" "));
+  try {
+    for (let i = 0; i < 3; i += 1) await call(handler, "GET", "/api/purchases/241");
+  } finally {
+    console.error = real;
+  }
+  assert.equal(written.filter((l) => l.includes("no listing for 241")).length, 1);
+});
+
 // I-3: the window between an irreversible write and the render of its result.
 // modelFor() runs after the action, so a store it cannot read must not report
 // the action itself as failed — a completion that paid a seller answered as a

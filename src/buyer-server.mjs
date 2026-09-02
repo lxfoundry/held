@@ -88,6 +88,12 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
     res.end(typeof body === "string" ? body : JSON.stringify(body));
   };
 
+  // ⚠️ One line per exchange, not one per read. The client polls every 2
+  // seconds and a missing listing stays missing, so logging inside modelFor()
+  // wrote the same sentence about thirty times a minute for as long as the
+  // server ran — which buries every other diagnostic in this file.
+  const missingListings = new Set();
+
   function modelFor(id) {
     const record = exchanges.get(id);
     if (!record) return null;
@@ -96,7 +102,10 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
     // and no price, and a blank card on screen looks like a bug in the product
     // rather than a missing file.
     if (!input?.listing) {
-      console.error(`no listing for ${id} — omitted from the view`);
+      if (!missingListings.has(id)) {
+        missingListings.add(id);
+        console.error(`no listing for ${id} — omitted from the view`);
+      }
       return null;
     }
     const snapshot = record.trackerId ? trackers.read(record.trackerId) : null;
@@ -272,7 +281,16 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
 
       const one = /^\/api\/purchases\/(\d+)$/.exec(path);
       if (req.method === "GET" && one) {
-        const model = modelFor(one[1]);
+        // Wrapped exactly as the list route above, and for the same reason: a
+        // store that cannot be read is a purchase this view cannot show, not a
+        // broken server. Unwrapped, one bad tracker snapshot reached the outer
+        // catch as a 500, and the client blanked the screen on it.
+        let model = null;
+        try {
+          model = modelFor(one[1]);
+        } catch (err) {
+          console.error(`could not render exchange ${one[1]}: ${err.message}`);
+        }
         return model ? send(res, 200, model) : send(res, 404, { error: "unknown purchase" });
       }
 
