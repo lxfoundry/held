@@ -17,6 +17,18 @@ const app = document.getElementById("app");
 // action is hoped to produce — see setFailed().
 let lastModel = null;
 
+// ⚠️ Fix round 1: action ids currently awaiting their POST's response. The
+// 2-second poll keeps running while an action is in flight — it must, so the
+// screen never stops reflecting the store — but a tick landing mid-action
+// used to rebuild the actions block from model.actions alone, which redrew
+// the clicked button as clickable again before its own request had answered.
+// actionsBlock() below refuses to draw a button in this set as enabled,
+// regardless of what the model says, so a concurrent render can't undo the
+// hold. Cleared the instant the action settles — success, a !res.ok failure,
+// or a thrown fetch — never left for the next poll to clean up, and never
+// used to suppress the poll itself.
+const inFlight = new Set();
+
 async function tick() {
   const res = await fetch(id ? `/api/purchases/${id}` : "/api/purchases");
   render(await res.json());
@@ -25,12 +37,26 @@ async function tick() {
 async function act(action) {
   // ⚠️ Optimistic rendering is forbidden. The button reports that it is
   // working; what replaces it comes from the next read of the store.
+  inFlight.add(action);
   setWorking(action);
   const opts =
     action === "photos"
       ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ photo: photoId }) }
       : { method: "POST" };
-  const res = await fetch(`/api/purchases/${id}/${action}`, opts);
+  let res;
+  try {
+    res = await fetch(`/api/purchases/${id}/${action}`, opts);
+  } catch (err) {
+    // The guard must not leak on a network failure either — that would
+    // disable this button for good, which is worse than the pre-guard
+    // behaviour. Cleared, then the original rejection still propagates
+    // exactly as it did before this fix (deferred: nothing here catches it).
+    inFlight.delete(action);
+    throw err;
+  }
+  // Cleared before either recovery path renders, so that render already
+  // reflects the settled truth instead of a guard about to be lifted.
+  inFlight.delete(action);
   if (!res.ok) return setFailed(action, await res.text());
   await tick();
 }
@@ -170,7 +196,9 @@ function actionsBlock(actions) {
     const btn = document.createElement("button");
     if (!a.primary) btn.className = "secondary";
     btn.textContent = a.label;
-    btn.disabled = !a.enabled;
+    // ⚠️ Fix round 1: inFlight overrides the model's enabled — a poll landing
+    // mid-action must rebuild this button held, not clickable again.
+    btn.disabled = !a.enabled || inFlight.has(a.id);
     btn.dataset.action = a.id;
     btn.addEventListener("click", () => act(a.id));
     wrap.appendChild(btn);
