@@ -46,7 +46,7 @@ import { assembleBundle } from "../src/evidence.mjs";
 import { createExchangeStore } from "../src/exchanges.mjs";
 import { createStore } from "../src/store.mjs";
 import { createCaseStore, createRecordingStore } from "../src/cases.mjs";
-import { DEFAULT_MAX_ROUNDS, deadlineFor, shouldMediate } from "../src/mediator.mjs";
+import { DEFAULT_MAX_ROUNDS, deadlineFor, isNewRound, shouldMediate } from "../src/mediator.mjs";
 import { applyPhotos, photoPathsFor, PHOTOS, ROUNDS, ROUND_NUMBER } from "../src/case-fixture.mjs";
 import { STATUS } from "../src/proposal.mjs";
 
@@ -230,7 +230,16 @@ const casePath = join(ROOT, "state/cases", `${exchangeId}.json`);
 const existing = cases.read(exchangeId);
 const clearing = ROUND_NUMBER[round] === 1 && existsSync(casePath);
 const heldRounds = existing?.rounds?.length ?? 0;
-const nextRound = (clearing ? 0 : heldRounds) + 1;
+
+// ⭐ mediate does not number a re-run of the same bundle as a new round:
+// isNewRound compares the last recorded round's hash, and scripts/mediate.mjs
+// stops with "nothing new to mediate" when it matches. So a report that always
+// increments is wrong exactly when the operator has changed nothing — and wrong
+// alarmingly, announcing "round 3, past the cap of 2 — final" for a run that
+// will do nothing at all. Clearing the record removes the round it would have
+// matched, so a reset to the opening round is always a new round.
+const opening = clearing || isNewRound(existing, bundle.hash);
+const nextRound = (clearing ? 0 : heldRounds) + (opening ? 1 : 0);
 
 // ⭐ `final` is the deadline OR the cap, computed exactly as src/mediator.mjs
 // computes it. Modelling only the cap is wrong in the silent direction: with the
@@ -242,7 +251,9 @@ const nextRound = (clearing ? 0 : heldRounds) + 1;
 // correctly. The deadline is the protocol's, read from the record.
 const deadline = deadlineFor(record, escalateLeadMs);
 const outOfTime = deadline != null && Date.now() >= deadline;
-const final = outOfTime || nextRound >= maxRounds;
+// Only meaningful for a round that actually runs. A bundle mediate will decline
+// to re-mediate reaches neither the cap nor the conclude path.
+const final = opening && (outOfTime || nextRound >= maxRounds);
 
 // ⚠️ Round 1 enforces its precondition by clearing the record; round 2 has one
 // too and can only report it. Round 2 is the second round only if the first is
@@ -264,8 +275,18 @@ info(
 info(`bundle        ${bundle.hash.slice(0, 12)} — ${plural(bundle.items.length, "item")}, ${plural(parsed.photos.length, "photograph")}`);
 // "round 3 of 2" is accurate and reads like a bug, so past the cap says so in
 // words. It is a state an operator can reach by stepping without resetting.
-const counted = nextRound > maxRounds ? `round ${nextRound}, past the cap of ${maxRounds}` : `round ${nextRound} of ${maxRounds}`;
-const why = outOfTime ? " — final on the deadline, so the model must propose" : final ? " — final, so the model must propose" : "";
+const counted = !opening
+  ? `nothing — this bundle is already round ${nextRound}, so mediate stops`
+  : nextRound > maxRounds
+    ? `round ${nextRound}, past the cap of ${maxRounds}`
+    : `round ${nextRound} of ${maxRounds}`;
+const why = !opening
+  ? ""
+  : outOfTime
+    ? " — final on the deadline, so the model must propose"
+    : final
+      ? " — final, so the model must propose"
+      : "";
 info(`next mediate  ${counted}${why}`);
 const remaining = deadline == null ? null : deadline - Date.now();
 info(
