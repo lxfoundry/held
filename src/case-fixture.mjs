@@ -21,18 +21,40 @@
 // fixture: at round 1 the fixture does not mention the carton, so a script that
 // learned the evidence from the file could never put it back.
 //
-// ⚠️ carton-crushed.jpg is deliberately absent. It is branch B of the
-// controlled comparison and has no committed recording, so offering it as a
-// demo state would be offering a live API call as a demo state.
+// Two entries carry the same fixture id and differ only in which image it is.
+// That is the point: the outer carton is one evidence slot, and what the demo
+// changes is the photograph occupying it, not the shape of the case.
 export const PHOTOS = {
   inner: { id: "inner", path: "fixtures/case/photos/inner.jpg", media_type: "image/jpeg" },
   carton: { id: "carton", path: "fixtures/case/photos/carton.jpg", media_type: "image/jpeg" },
+  "carton-crushed": { id: "carton", path: "fixtures/case/photos/carton-crushed.jpg", media_type: "image/jpeg" },
 };
 
 // The case in full, as evidence: the mediator asks for the outer carton, the
 // buyer adds it, the number moves. Round 2 is round 1 plus one photograph, and
 // that one photograph is the entire difference between the two bundle hashes.
-export const ROUNDS = { 1: ["inner"], 2: ["inner", "carton"] };
+//
+// ⭐ 2b is round 2 with the outer carton crushed instead of intact, and it is
+// the only claim in this system that can be demonstrated rather than asserted:
+// the reasoning recorded for round 2 turns on the carton being undamaged, so
+// swapping that one image is a controlled test of whether the model is reading
+// the evidence or producing a plausible number. Everything else the bundle holds
+// — the real parcel's tracking, the offer terms, the message thread, the
+// protocol's dispute instant — is identical between them.
+//
+// ⚠️ It has to be a state of *this* case for that claim to hold. The comparison
+// is only controlled because nothing else moves; run against a different
+// exchange, the tracking history and the timings move too, and any difference in
+// the answer is unattributable. That is why there is one exchange here.
+export const ROUNDS = {
+  1: ["inner"],
+  2: ["inner", "carton"],
+  "2b": ["inner", "carton-crushed"],
+};
+
+// Which mediation round a state stands in for. 2b is a round 2: it wants the
+// opening round already on file, and it is final under a cap of 2.
+export const ROUND_NUMBER = { 1: 1, 2: 2, "2b": 2 };
 
 // Deliberately narrow: the region ends at the first `]`, so it matches the flat
 // array of objects the fixture holds and fails loudly on anything nested rather

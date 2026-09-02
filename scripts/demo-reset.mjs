@@ -1,9 +1,17 @@
 #!/usr/bin/env node
 // Put a mediated case back at its first round, and say whether it will replay.
 //
-//   node scripts/demo-reset.mjs                       # report, change nothing
-//   node scripts/demo-reset.mjs --execute             # back to round 1
-//   node scripts/demo-reset.mjs --round 2 --execute   # the buyer has added the carton
+//   node scripts/demo-reset.mjs                        # report, change nothing
+//   node scripts/demo-reset.mjs --execute              # back to round 1
+//   node scripts/demo-reset.mjs --round 2 --execute    # the buyer has added the carton
+//   node scripts/demo-reset.mjs --round 2b --execute   # ...and that carton is crushed
+//
+// ⭐ 2b is the comparison. It is round 2 with one photograph swapped and
+// everything else — the parcel's real tracking, the offer terms, the messages,
+// the dispute instant — held identical, so a difference in what the mediator
+// says is attributable to the evidence and to nothing else. Round 2's recorded
+// reasoning turns on the outer carton being undamaged; 2b is what it says when
+// it is not.
 //
 // ⭐ Two things degrade a demonstration run silently, and this is the only
 // place that checks both.
@@ -39,7 +47,7 @@ import { createExchangeStore } from "../src/exchanges.mjs";
 import { createStore } from "../src/store.mjs";
 import { createCaseStore, createRecordingStore } from "../src/cases.mjs";
 import { DEFAULT_MAX_ROUNDS, deadlineFor, shouldMediate } from "../src/mediator.mjs";
-import { applyPhotos, photoPathsFor, PHOTOS, ROUNDS } from "../src/case-fixture.mjs";
+import { applyPhotos, photoPathsFor, PHOTOS, ROUNDS, ROUND_NUMBER } from "../src/case-fixture.mjs";
 import { STATUS } from "../src/proposal.mjs";
 
 const ok = (line) => console.log(`✓ ${line}`);
@@ -53,26 +61,34 @@ const step = (line) => console.log(`\n▶ ${line}`);
 // what keeps a reset off the bundle hash, so it is worth more as something
 // tested than as something inline.
 
+// ⭐ One exchange, named here rather than taken as an argument. The evidence
+// table above describes this case and no other, so an --exchange flag was a way
+// to point that table at a fixture it does not describe and rewrite it — a
+// committed file, silently, with a success line. The states differ by one
+// photograph *of this case*, which is what makes the comparison controlled, so
+// there is nothing for the flag to select.
+const EXCHANGE_ID = "241";
+
 const args = process.argv.slice(2);
 const execute = args.includes("--execute");
-const VALUED = ["round", "exchange"];
+const VALUED = ["round"];
 const flag = (name, fallback) => {
   const i = args.indexOf(`--${name}`);
   if (i === -1) return fallback;
   const value = args[i + 1];
   // ⚠️ The next token is a value only if it does not itself look like a flag —
   // the same guard scripts/seed-exchange.mjs gives its reasons for. Here
-  // `--exchange --execute` would otherwise name exchange "--execute", which
-  // reads back as a missing record rather than as the typo it is.
+  // `--round --execute` would otherwise name round "--execute", which reads back
+  // as an unknown round rather than as the typo it is.
   return value === undefined || value.startsWith("--") ? fallback : value;
 };
 
-// ⚠️ Everything is a named flag here, and scripts/mediate.mjs takes the same
-// exchange id positionally. So `npm run demo-reset -- 241` is the natural thing
-// to type and, unguarded, silently resets the default exchange instead of the
-// one named — a wrong case reset without a word on screen. Anything that is
-// neither a known flag nor a known flag's value is refused rather than ignored,
-// which also catches `--round` with its value left off.
+// ⚠️ Everything is a named flag here, and scripts/mediate.mjs takes an exchange
+// id positionally. So `npm run demo-reset -- 241` is the natural thing to type,
+// and silently ignored it would reset round 1 while reading as a request about
+// exchange 241. Anything that is neither a known flag nor a known flag's value
+// is refused rather than ignored, which also catches `--round` with its value
+// left off.
 const known = new Set(["--execute", ...VALUED.map((name) => `--${name}`)]);
 const consumed = new Set();
 for (const name of VALUED) {
@@ -84,7 +100,7 @@ for (const name of VALUED) {
   // declines to read the next flag as a value; this says so out loud.
   if (args[i + 1] === undefined || args[i + 1].startsWith("--")) {
     console.error(`✗ --${name} needs a value`);
-    console.error("  usage: node scripts/demo-reset.mjs [--round 1|2] [--exchange <id>] [--execute]");
+    console.error("  usage: node scripts/demo-reset.mjs [--round 1|2|2b] [--execute]");
     process.exit(1);
   }
   consumed.add(i + 1);
@@ -92,22 +108,18 @@ for (const name of VALUED) {
 const stray = args.filter((value, i) => !consumed.has(i) && !known.has(value));
 if (stray.length > 0) {
   console.error(`✗ unrecognised argument${stray.length === 1 ? "" : "s"}: ${stray.join(" ")}`);
-  console.error("  usage: node scripts/demo-reset.mjs [--round 1|2] [--exchange <id>] [--execute]");
-  console.error("  the exchange is named with --exchange, not positionally as scripts/mediate.mjs takes it");
+  console.error("  usage: node scripts/demo-reset.mjs [--round 1|2|2b] [--execute]");
+  console.error("  the exchange is fixed: this script describes one case");
   process.exit(1);
 }
 
 const round = flag("round", "1");
-const requested = flag("exchange", "241");
 if (!ROUNDS[round]) {
-  console.error(`✗ --round takes ${Object.keys(ROUNDS).join(" or ")}, not ${JSON.stringify(round)}`);
+  console.error(`✗ --round takes ${Object.keys(ROUNDS).join(", ")}, not ${JSON.stringify(round)}`);
+  console.error("  2b is round 2 with the outer carton crushed instead of intact");
   process.exit(1);
 }
-if (!/^\d+$/.test(requested) || !Number.isSafeInteger(Number(requested))) {
-  console.error(`✗ --exchange expects a whole exchange id, not ${JSON.stringify(requested)}`);
-  process.exit(1);
-}
-const exchangeId = String(Number(requested));
+const exchangeId = EXCHANGE_ID;
 
 // ⚠️ ESCALATION_LEAD_MS belongs on this list because the mediator's `final` is
 // the deadline *or* the cap, and a report that models only the cap is wrong in
@@ -216,7 +228,7 @@ const bundle = assembleBundle({
 // step round 1 and quietly demote the payoff into the opening question.
 const casePath = join(ROOT, "state/cases", `${exchangeId}.json`);
 const existing = cases.read(exchangeId);
-const clearing = round === "1" && existsSync(casePath);
+const clearing = ROUND_NUMBER[round] === 1 && existsSync(casePath);
 const heldRounds = existing?.rounds?.length ?? 0;
 const nextRound = (clearing ? 0 : heldRounds) + 1;
 
@@ -237,7 +249,7 @@ const final = outOfTime || nextRound >= maxRounds;
 // on file — with an empty record it numbers itself round 1, replays the round-1
 // recording, and opens the demo on the payoff proposal with the question beat
 // silently missing.
-const roundTwoUnready = round === "2" && heldRounds !== 1;
+const roundTwoUnready = ROUND_NUMBER[round] === 2 && heldRounds !== 1;
 const recorded = recordings.find(bundle.hash);
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
