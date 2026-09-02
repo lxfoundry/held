@@ -45,6 +45,10 @@ An exchange presents as **two independent lines**, already implemented in `src/b
 
 They change for different reasons at different moments and are never interleaved.
 
+The money line itself is two parts: `moneyLine()` returns `{ key, text, meta }` — `text` is the
+headline, `meta` a second line beneath it once the money has finalised (`null` while it is still
+`held`). §4 gives the exact copy for both.
+
 ### 3.1 · The money line gains a third ending
 
 `moneyLine()` currently returns *held*, *paid* or *returned*. That is one ending short.
@@ -90,10 +94,18 @@ Copy is exact. `{…}` is data resolved at render time.
 | `returned` | **Your money has been returned.** · {price} · back to you |
 | `split` | **{refund} has come back to you.** · The seller has been paid the rest. |
 
+Each row is two parts. The bold sentence is `text` — the largest type on the screen, in every state.
+Everything after the middot is `meta` — a second, quieter line beneath it, filled from the matching
+`*_meta` string in `BUYER_STRINGS` (`paid_meta`, `returned_meta`, `split_meta`). `moneyLine()` returns
+`{ key, text, meta }`; `meta` is `null` exactly when `held` is — the money hasn't finalised, so there
+is nothing yet to add. `{date}` in `paid_meta` is `finalisedAt`, formatted the same way §5's deadline
+date is, so two dates on the same screen cannot disagree in style.
+
 The two clean endings render green; **`split` renders amber**. A negotiated ending is neither of the
 other two, and colouring it as one of them repeats the error §3.1 fixes.
 
-`split` carries one supporting line beneath the item, and only `split` does:
+`split` carries one supporting line beneath the item, and only `split` does — a third piece of copy,
+separate from `meta` and drawn below the item row rather than inside the money block:
 
 > You both agreed. No platform, no court.
 
@@ -111,6 +123,13 @@ It is the only ending both parties chose, and the only one worth saying anything
 | dispute raised by the watchdog | It hasn't arrived. We've raised this for you. |
 | dispute raised by the buyer | Let's sort this out |
 | escalated | A person is now looking at it |
+
+**A line describing an open process must not survive finalisation; a line that states a fact may.**
+"Let's sort this out" and "A person is now looking at it" are both present-tense claims about a
+process still running — once `finalisedAt` is set, both are false, and `parcelLine()` falls through
+to whatever the tracking data shows beneath them (a delivered parcel then reads "It arrived"). "It
+hasn't arrived. We've raised this for you." states what happened rather than what is still open; it
+remains true after settlement and is not conditioned on `finalisedAt` at all.
 
 ## 5 · The delivered state, and what the buyer owes
 

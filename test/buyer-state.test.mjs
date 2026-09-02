@@ -125,6 +125,60 @@ test("a split with a non-integer refund formats to two decimal places", () => {
   assert.equal(line.text, "£49.50 has come back to you.");
 });
 
+test("held carries no second line", () => {
+  assert.equal(moneyLine(record()).meta, null);
+});
+
+test("paid states the price and the date it settled", () => {
+  const line = moneyLine(record({ finalisedAt: 1, outcome: "paid", buyerPercent: 0 }), {
+    priceText: "200",
+    currency: "£",
+    finalisedDate: "19 September",
+  });
+  assert.equal(line.meta, "£200 · 19 September");
+});
+
+test("returned states the price, back to the buyer", () => {
+  const line = moneyLine(record({ finalisedAt: 1, outcome: "returned", buyerPercent: 100 }), {
+    priceText: "200",
+    currency: "£",
+  });
+  assert.equal(line.meta, "£200 · back to you");
+});
+
+test("split states that the seller has been paid the rest", () => {
+  const line = moneyLine(record({ finalisedAt: 1, outcome: "split", buyerPercent: 20 }), {
+    priceText: "200",
+    currency: "£",
+  });
+  assert.equal(line.meta, "The seller has been paid the rest.");
+});
+
+test("a settlement's parcel line states the fact, never an open process that is over", () => {
+  const delivered = tracking({ current: "delivered", delivered: true });
+
+  const split = parcelLine({
+    tracking: delivered,
+    record: record({ disputeRaisedAt: 1, disputeRaisedBy: "buyer", finalisedAt: 2, outcome: "split", buyerPercent: 20 }),
+  });
+  assert.equal(split.key, "arrived");
+
+  const escalatedThenFinalised = parcelLine({
+    tracking: delivered,
+    record: record({ disputeRaisedAt: 1, disputeRaisedBy: "buyer", escalatedAt: 2, finalisedAt: 3, outcome: "paid", buyerPercent: 0 }),
+  });
+  assert.equal(escalatedThenFinalised.key, "arrived");
+});
+
+test("a watchdog-raised dispute still reads as raised for you once it finalises", () => {
+  const line = parcelLine({
+    tracking: tracking(),
+    record: record({ disputeRaisedAt: 1, disputeRaisedBy: "watchdog", finalisedAt: 2, outcome: "returned", buyerPercent: 100 }),
+  });
+  assert.equal(line.key, "raised_for_you");
+  assert.match(line.text, /raised this for you/);
+});
+
 test("fill replaces every placeholder and leaves nothing unresolved", () => {
   assert.equal(fill("paid on {date}", { date: "19 September" }), "paid on 19 September");
   assert.throws(() => fill("paid on {date}", {}), /date/);

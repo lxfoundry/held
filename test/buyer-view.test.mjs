@@ -124,6 +124,53 @@ test("escalation shows the file and stops offering anything", () => {
   assert.deepEqual(v.actions, []);
 });
 
+test("a split settlement's screen no longer contradicts itself", () => {
+  // The bug this guards: money said settled, the parcel line still invited
+  // the buyer into a process that was over ("Let's sort this out").
+  const v = view({
+    tracking: tracking({ current: "delivered", delivered: true }),
+    record: record({ disputeRaisedAt: 1, disputeRaisedBy: "buyer", finalisedAt: 2, outcome: "split", buyerPercent: 20 }),
+  });
+  assert.equal(v.money.text, "£40 has come back to you.");
+  assert.equal(v.parcel.key, "arrived");
+  assert.equal(v.parcel.text, "It arrived");
+});
+
+test("an escalated exchange that finalises stops claiming a person is still looking at it", () => {
+  const v = view({
+    tracking: tracking({ current: "delivered", delivered: true }),
+    record: record({ disputeRaisedAt: 1, disputeRaisedBy: "buyer", escalatedAt: 2, finalisedAt: 3, outcome: "paid", buyerPercent: 0 }),
+  });
+  assert.notEqual(v.parcel.key, "with_a_person");
+  assert.equal(v.parcel.key, "arrived");
+});
+
+test("a watchdog-raised dispute still reads as raised for you once the exchange finalises", () => {
+  const v = view({
+    tracking: tracking(),
+    record: record({ disputeRaisedAt: 1, disputeRaisedBy: "watchdog", finalisedAt: 2, outcome: "returned", buyerPercent: 100 }),
+  });
+  assert.equal(v.parcel.key, "raised_for_you");
+  assert.equal(v.parcel.text, "It hasn't arrived. We've raised this for you.");
+});
+
+test("each settled money state renders its second line, with the exact spec copy", () => {
+  const paid = view({
+    record: record({ finalisedAt: Date.parse("2026-09-19T00:00:00Z"), outcome: "paid", buyerPercent: 0 }),
+  });
+  assert.equal(paid.money.meta, "£200 · 19 September");
+
+  const returned = view({ record: record({ finalisedAt: 1, outcome: "returned", buyerPercent: 100 }) });
+  assert.equal(returned.money.meta, "£200 · back to you");
+
+  const split = view({ record: record({ finalisedAt: 1, outcome: "split", buyerPercent: 20 }) });
+  assert.equal(split.money.meta, "The seller has been paid the rest.");
+});
+
+test("held renders no second line", () => {
+  assert.equal(view().money.meta, null);
+});
+
 test("⭐ every string the view emits — labels and reasons alike — comes from BUYER_STRINGS", async () => {
   const { BUYER_STRINGS } = await import("../src/buyer-state.mjs");
   // Placeholders are filled by the time they reach here, so compare on the
@@ -147,7 +194,7 @@ test("⭐ every string the view emits — labels and reasons alike — comes fro
   ];
 
   for (const v of states) {
-    const texts = [v.money.text, v.parcel.text, v.notice, ...v.actions.flatMap((a) => [a.label, a.reason])];
+    const texts = [v.money.text, v.money.meta, v.parcel.text, v.notice, ...v.actions.flatMap((a) => [a.label, a.reason])];
     for (const text of texts) {
       if (text == null) continue;
       assert.ok(known.some((k) => text.includes(k.trim())), `"${text}" is not built from BUYER_STRINGS`);

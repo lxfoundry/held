@@ -133,6 +133,8 @@ function moneyBlock(money) {
   const div = document.createElement("div");
   div.className = `money ${money.tone}`;
   div.appendChild(textEl("b", money.text));
+  // `meta` is the second line — held has none, and nothing is drawn for it.
+  if (money.meta) div.appendChild(textEl("span", money.meta));
   return div;
 }
 

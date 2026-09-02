@@ -61,13 +61,30 @@ const line = (key, values = null) => ({
   text: values ? fill(BUYER_STRINGS[key], values) : BUYER_STRINGS[key],
 });
 
-export function moneyLine(record, { priceText = null, currency = "£" } = {}) {
+export function moneyLine(record, { priceText = null, currency = "£", finalisedDate = null } = {}) {
   // An outcome is what happened to the money, and until the exchange finalises
   // nothing has. `held` is the line rendered in the absence of an outcome — it
-  // is deliberately not one of `outcome`'s values.
-  if (record.finalisedAt == null) return line("held");
+  // is deliberately not one of `outcome`'s values, and has no second line.
+  if (record.finalisedAt == null) return { ...line("held"), meta: null };
+
+  // The listing's price, formatted the same way item.price is — a
+  // presentational fact, never a claim about what the chain moved.
+  const price = priceText == null ? null : `${currency}${priceText}`;
+
   if (record.outcome !== "split") {
-    return line(record.outcome === "returned" ? "returned" : "paid");
+    if (record.outcome === "returned") {
+      return {
+        ...line("returned"),
+        meta: price == null ? null : fill(BUYER_STRINGS.returned_meta, { price }),
+      };
+    }
+    return {
+      ...line("paid"),
+      meta:
+        price == null || finalisedDate == null
+          ? null
+          : fill(BUYER_STRINGS.paid_meta, { price, date: finalisedDate }),
+    };
   }
 
   // Without a price there is no amount to state, and stating a fraction is
@@ -77,7 +94,7 @@ export function moneyLine(record, { priceText = null, currency = "£" } = {}) {
     priceText == null
       ? `${percent}%`
       : `${currency}${formatAmount((Number(priceText) * percent) / 100)}`;
-  return line("split", { refund });
+  return { ...line("split", { refund }), meta: BUYER_STRINGS.split_meta };
 }
 
 // Whole pounds where the split is whole, two places where it is not. A refund
@@ -87,11 +104,21 @@ function formatAmount(value) {
 }
 
 export function parcelLine({ tracking, record }) {
+  // A line describing an open process must not survive finalisation; a line
+  // that states a fact may. "A person is now looking at it" and "Let's sort
+  // this out" are both present-tense claims about a process still running —
+  // once the exchange finalises they are false, and the line falls through
+  // to whatever the tracking data actually shows. "It hasn't arrived. We've
+  // raised this for you." states what happened, remains true after
+  // settlement, and is not guarded by finalisation at all.
+  const finalised = record.finalisedAt != null;
+
   // Compared against null for the same reason as the decision function: these
   // are timestamps and zero is a real one.
-  if (record.escalatedAt != null) return line("with_a_person");
+  if (!finalised && record.escalatedAt != null) return line("with_a_person");
   if (record.disputeRaisedAt != null) {
-    return line(record.disputeRaisedBy === "watchdog" ? "raised_for_you" : "sorting_out");
+    if (record.disputeRaisedBy === "watchdog") return line("raised_for_you");
+    if (!finalised) return line("sorting_out");
   }
 
   const milestone = tracking?.current ?? "pending";

@@ -22,7 +22,11 @@ export function viewFor({ record, tracking, caseRecord = null, listing, events =
   const priceText = listing?.priceText ?? null;
   const currency = listing?.currency ?? "£";
 
-  const money = moneyLine(record, { priceText, currency });
+  const money = moneyLine(record, {
+    priceText,
+    currency,
+    finalisedDate: record.finalisedAt != null ? formatDate(record.finalisedAt) : null,
+  });
   const parcel = parcelLine({ tracking, record });
 
   const disputed = record.disputeRaisedAt != null;
@@ -53,13 +57,19 @@ function offersCompletion(tracking, record) {
 }
 
 function deadlineNotice(record) {
-  const at = new Date(record.redeemedAt + record.disputePeriodMs);
-  const date = `${at.getUTCDate()} ${MONTHS[at.getUTCMonth()]}`;
-  return fill(BUYER_STRINGS.deadline_notice, { date });
+  return fill(BUYER_STRINGS.deadline_notice, { date: formatDate(record.redeemedAt + record.disputePeriodMs) });
 }
 
 const MONTHS = ["January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December"];
+
+// The one date formatter, so two dates on the same screen — the deadline
+// notice and a settled exchange's finalised date — can never disagree in
+// style.
+function formatDate(ms) {
+  const at = new Date(ms);
+  return `${at.getUTCDate()} ${MONTHS[at.getUTCMonth()]}`;
+}
 
 // ⚠️ occurrenceDatetime, never datetime: the two disagree by the UTC offset and
 // the second is local time labelled as UTC.
