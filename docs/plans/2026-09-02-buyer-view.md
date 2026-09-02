@@ -35,14 +35,19 @@
 | `scripts/replay.mjs` | *create* — advances captured events on a timer | 8 |
 | `fixtures/case/<id>.json` | *create* — a listing per demonstrated exchange | 8 |
 
-## ⚠️ One known divergence from the spec, deliberately not resolved here
+## ⚠️ The price on screen is not the amount that moves
 
-Spec §6.1 says the displayed price is the listing's and the chain's is authoritative, and calls a
-disagreement a provisioning error. **In the current fixtures they do disagree by design** — a listing
-reads `"priceText": "200"` in pounds while the exchange it describes was seeded at a fraction of a
-test token. No task in this plan asserts that they agree, and none reconciles them. The view renders
-the listing's price and currency and nothing else. Resolve the spec text or the fixtures separately;
-do not let a task quietly encode either as true.
+**Decided, and now spec §6.1.** A listing reads `"priceText": "200"` in pounds while the exchange it
+describes settles in a fraction of a test token. They are **not** reconciled and the disagreement is
+not an error.
+
+What every task must therefore hold to:
+
+- The view renders `listing.priceText` with `listing.currency`, and **reads no price from the chain
+  in any state**.
+- A refund amount is the listing's price times the proposal's percentage. The **proportion** is the
+  settled fact; the amount is that proportion expressed in the listed currency.
+- No test may assert that the two agree, and no code may reconcile them.
 
 ---
 

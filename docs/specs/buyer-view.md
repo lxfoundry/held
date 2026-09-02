@@ -175,9 +175,26 @@ the `listing` block already present in `fixtures/case/<exchangeId>.json`:
 ```
 
 **Every exchange the view shows needs one**, including exchanges with no case, where `photos` and
-`messages` are simply absent. The displayed price is the listing's; the chain's price is
-authoritative, and a disagreement between them is a provisioning error rather than something the
-view reconciles.
+`messages` are simply absent.
+
+### ⚠️ The displayed price is the listing's, and is deliberately not the amount that moves
+
+The listing states what the item is worth — a retired set at £200. The exchange behind it is settled
+in a fraction of a test token. **These are not reconciled, and a disagreement between them is not an
+error.** The view renders `listing.priceText` with `listing.currency` and never reads a price from
+the chain.
+
+Everything derived from the price inherits that. When a proposal settles at 20% and the screen reads
+*"£40 has come back to you"*, £40 is 20% of the listing's price. It is the **proportion** that is
+real and settled on chain; the amount is the proportion expressed in the currency the item was
+listed in.
+
+Two consequences, both deliberate:
+
+- A price is a **presentational fact about the listing**, never a claim about what a chain moved.
+  Nothing in the view may present it as the latter.
+- The view therefore needs no chain read to render any state, which is what lets it draw a complete
+  screen from three files on disk.
 
 ## 7 · The screen
 
