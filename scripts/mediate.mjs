@@ -139,8 +139,7 @@ console.log(`  ${bundle.items.length} evidence items, ${attachments.length} phot
 // cost this guards against is not a request, it is a round. A dry run spent one
 // too, because it exits early only when there is no recording to replay.
 if (!opening) {
-  console.log(`
-· same bundle as round ${round} — nothing new to mediate`);
+  console.log(`\n· same bundle as round ${round} — nothing new to mediate`);
   console.log(JSON.stringify(forParty(existing.rounds.at(-1)), null, 2));
   process.exit(0);
 }
