@@ -21,7 +21,7 @@ const tracking = (over = {}) => ({
 
 const view = (over = {}) =>
   viewFor({ record: record(), tracking: tracking(), caseRecord: null, listing,
-            events: [], allowConfirm: true, allowPhoto: true, ...over });
+            events: [], allowConfirm: true, allowPhoto: true, allowSettle: true, ...over });
 
 test("ACTIONS.PHOTO is the literal route segment the client posts to", () => {
   // Pinned as a literal, not compared against itself: every other test refers
@@ -132,21 +132,44 @@ test("mediation carries nothing the screen does not draw", () => {
   assert.deepEqual(Object.keys(v.mediation).sort(), ["proposal", "question"]);
 });
 
-test("a proposal renders its amount and its reasoning, and settling is not yet available", () => {
-  const v = view({
-    tracking: tracking({ current: "delivered", delivered: true }),
-    record: record({ disputeRaisedAt: 1, disputeRaisedBy: "buyer" }),
-    caseRecord: { exchangeId: "241", rounds: [{ result: { status: "proposal",
-      buyerPercent: 20, reasoning: "The carton is intact." } }] },
-  });
+const proposal = (over = {}) => ({
+  tracking: tracking({ current: "delivered", delivered: true }),
+  record: record({ disputeRaisedAt: 1, disputeRaisedBy: "buyer" }),
+  caseRecord: { exchangeId: "241", rounds: [{ result: { status: "proposal",
+    buyerPercent: 20, reasoning: "The carton is intact." } }] },
+  ...over,
+});
+
+test("a proposal renders its amount and its reasoning, and accepting is offered", () => {
+  const v = view(proposal());
   assert.equal(v.mediation.proposal.refund, "£40");
   assert.equal(v.mediation.proposal.reasoning, "The carton is intact.");
   const settle = v.actions.find((a) => a.id === ACTIONS.SETTLE);
-  assert.equal(settle.enabled, false);
+  assert.equal(settle.enabled, true);
   assert.equal(settle.label, "That works for me");
-  const decline = v.actions.find((a) => a.id === ACTIONS.DECLINE);
-  assert.equal(decline.enabled, false);
-  assert.equal(decline.reason, "Declining isn't available yet");
+  assert.equal(settle.reason, null);
+});
+
+// The operator's arming, exactly as completing renders it: an action the
+// operator has not armed is drawn disabled with a neutral reason, never hidden
+// and never a name the buyer has to understand.
+test("an unarmed operator leaves accepting disabled, and says so neutrally", () => {
+  const settle = view(proposal({ allowSettle: false })).actions.find((a) => a.id === ACTIONS.SETTLE);
+  assert.equal(settle.enabled, false);
+  assert.equal(settle.reason, "Accepting isn't available right now");
+  assert.ok(!settle.reason.includes("BUYER_UI"));
+});
+
+// ⭐ Declining is not a chain call and is deliberately not a button. The
+// proposal is inert: it settles only if the buyer accepts, and if they do not,
+// the resolution window runs down and a person takes the case. The reason says
+// that, rather than promising a control that is coming.
+test("declining stays disabled, and its reason states what happens instead", () => {
+  for (const armed of [true, false]) {
+    const decline = view(proposal({ allowSettle: armed })).actions.find((a) => a.id === ACTIONS.DECLINE);
+    assert.equal(decline.enabled, false);
+    assert.equal(decline.reason, "If this isn't right, don't accept — a person will look at it.");
+  }
 });
 
 // Promoted minor 4: the proposal's amount and the settled refund are the two
@@ -258,13 +281,10 @@ test("⭐ every string the view emits — labels and reasons alike — comes fro
     // raw literal reach `reason` undetected before — the earlier version of
     // this test only ever looked at `label`, never `reason`.
     view({ tracking: tracking({ current: "delivered", delivered: true }), allowConfirm: false }),
-    // A proposal: exercises the settle/decline `reason` strings too.
-    view({
-      tracking: tracking({ current: "delivered", delivered: true }),
-      record: record({ disputeRaisedAt: 1, disputeRaisedBy: "buyer" }),
-      caseRecord: { exchangeId: "241", rounds: [{ result: { status: "proposal",
-        buyerPercent: 20, reasoning: "The carton is intact." } }] },
-    }),
+    // A proposal, armed and unarmed: exercises the settle and decline
+    // `reason` strings, which is where a raw literal would hide.
+    view(proposal()),
+    view(proposal({ allowSettle: false })),
     // A split ending.
     view({ record: record({ finalisedAt: 1, outcome: "split", buyerPercent: 20 }) }),
   ];

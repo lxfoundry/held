@@ -38,8 +38,14 @@ export const BUYER_STRINGS = {
   add_photo: "Add a photo",
   accept_proposal: "That works for me",
   decline_proposal: "No thanks",
-  decline_unavailable: "Declining isn't available yet",
-  settle_unavailable: "Settling isn't available yet",
+  // ⭐ Declining is not a chain call, so it is not a button. A proposal is
+  // inert: it settles only if the buyer accepts it, and if they never do, the
+  // resolution window runs down and the case goes to a person. This line says
+  // that, rather than promising a control that is coming.
+  decline_unavailable: "If this isn't right, don't accept — a person will look at it.",
+  // The operator has not armed settling. Neutral on purpose: the buyer never
+  // learns an environment variable's name.
+  settle_unavailable: "Accepting isn't available right now",
   complete_unavailable: "This isn't available right now",
   photo_unavailable: "Adding a photo isn't available right now",
 

@@ -125,6 +125,7 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
       events: snapshot?.events ?? [],
       allowConfirm,
       allowPhoto,
+      allowSettle,
     });
   }
 
