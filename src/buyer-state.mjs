@@ -110,13 +110,24 @@ export function moneyLine(record, { priceText = null, currency = "£", finalised
   }
 
   if (record.outcome === "split") {
-    // Without a price there is no amount to state, and stating a fraction is
-    // honest where inventing a number is not.
+    // ⚠️ A split is a proportion, so a record that names none supports no
+    // statement about the money at all. `Number(priceText) * null / 100` is
+    // 0, so this branch used to read "£0 has come back to you." on a record
+    // that says no such thing — the same invented claim the fall-through
+    // below exists to prevent, and precisely the shape of every record
+    // finalised before buyerPercent was written. The absence is answered the
+    // way this module answers every other one: the record holds no outcome
+    // this line can read, so it states none.
     const percent = record.buyerPercent;
-    const refund =
-      priceText == null
-        ? `${percent}%`
-        : `${currency}${formatAmount((Number(priceText) * percent) / 100)}`;
+    if (!Number.isFinite(percent)) return { ...line("held"), meta: null };
+
+    // Without a price there is no amount to state, and stating a fraction is
+    // honest where inventing a number is not. A price a human wrote with a
+    // separator ("1,200") is not a number either, and reads as the same
+    // absence one step later — "£NaN has come back to you." — so it takes the
+    // same answer rather than a new one.
+    const amount = priceText == null ? NaN : (Number(priceText) * percent) / 100;
+    const refund = Number.isFinite(amount) ? `${currency}${formatAmount(amount)}` : `${percent}%`;
     return { ...line("split", { refund }), meta: BUYER_STRINGS.split_meta };
   }
 

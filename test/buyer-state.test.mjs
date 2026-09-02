@@ -132,6 +132,26 @@ test("a split with no price says the fraction rather than inventing an amount", 
   assert.equal(line.text, "20% has come back to you.");
 });
 
+test("a split naming no percentage states nothing about the money", () => {
+  // The shape of every record finalised before buyerPercent was written, and
+  // the one src/exchanges.mjs neither refuses to write nor validates on read.
+  // `price * null / 100` is 0, so this used to read "£0 has come back to you."
+  const line = moneyLine(record({ finalisedAt: 1, outcome: "split" }), {
+    priceText: "200",
+    currency: "£",
+  });
+  assert.equal(line.key, "held");
+  assert.equal(line.meta, null);
+});
+
+test("a split whose price is not a number says the fraction, not £NaN", () => {
+  const line = moneyLine(record({ finalisedAt: 1, outcome: "split", buyerPercent: 20 }), {
+    priceText: "1,200",
+    currency: "£",
+  });
+  assert.equal(line.text, "20% has come back to you.");
+});
+
 test("a split with a non-integer refund formats to two decimal places", () => {
   const line = moneyLine(record({ finalisedAt: 1, outcome: "split", buyerPercent: 33 }), { priceText: "150", currency: "£" });
   assert.equal(line.text, "£49.50 has come back to you.");
