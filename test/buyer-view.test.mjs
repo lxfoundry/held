@@ -380,3 +380,56 @@ test("only a finished purchase carries a tone other than held", () => {
     assert.equal(v.money.tone, tone);
   }
 });
+
+// --- the dates the buyer reads ----------------------------------------------
+// ⭐ The deadline notice is the only warning the buyer gets, and inaction pays
+// the seller — so a wrong date here is the one copy error on this screen that
+// costs them money. These cover both ways it used to be wrong.
+
+test("a record with no redemption instant states no deadline rather than a wrong one", () => {
+  // src/exchanges.mjs permits a null redeemedAt and does not validate what it
+  // reads. `null + 17 days` is a number, not an error, so this rendered "The
+  // seller is paid on 18 January" — a confident date from a record that holds
+  // none.
+  const v = view({
+    tracking: tracking({ current: "delivered", delivered: true }),
+    record: record({ redeemedAt: null }),
+  });
+  assert.equal(v.notice, null);
+  // The actions are unaffected: the deadline is unstated, not the purchase.
+  assert.deepEqual(v.actions.map((a) => a.id), [ACTIONS.COMPLETE, ACTIONS.RAISE]);
+});
+
+test("a record with no dispute period states no deadline either", () => {
+  const v = view({
+    tracking: tracking({ current: "delivered", delivered: true }),
+    record: record({ disputePeriodMs: null }),
+  });
+  assert.equal(v.notice, null);
+});
+
+// ⚠️ Read against the buyer's calendar, not UTC. This instant is 00:30 on the
+// 19th in London and 23:30 on the 18th in UTC, and telling a buyer to act by
+// the 18th when their own clock says the 19th is a day early on the one line
+// that matters. Pinned to a fixed zone rather than the machine's, so this
+// asserts the same thing wherever it runs.
+test("a deadline just past midnight reads as the day the buyer's calendar shows", () => {
+  const v = view({
+    tracking: tracking({ current: "delivered", delivered: true }),
+    record: record({
+      redeemedAt: Date.parse("2026-09-01T23:30:00Z"),
+      disputePeriodMs: 17 * 86_400_000,
+    }),
+  });
+  assert.match(v.notice, /^The seller is paid on 19 September\./);
+});
+
+// ⚠️ The other side of that split, and the reason the two formatters are two.
+// A carrier's stamp is shifted by its own offset so that reading it as UTC
+// gives the time printed on the scan; passing it through the buyer's zone as
+// well would add the offset twice — moving this entry onto the 19th while the
+// clock beside it went on saying 23:30.
+test("a late-evening scan keeps its own date beside its own clock", () => {
+  const v = view({ events: [{ occurrenceDatetime: "2026-09-18T23:30:00+01:00", status: "Out for Delivery" }] });
+  assert.deepEqual(v.timeline, ["18 September, 23:30 · Out for Delivery"]);
+});

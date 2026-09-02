@@ -39,6 +39,29 @@ const inFlight = new Set();
 // two seconds of appearing.
 let actionFailed = false;
 
+// ⚠️ What the screen currently draws, as the model plus the two facts no store
+// holds. The poll rebuilt the whole page every two seconds whether or not
+// anything had changed, and the mediator's reasoning is some two thousand
+// characters in a scrolling box: a buyer reading it was returned to the top
+// twice a second and could never reach the end of the one thing this product
+// exists to show them. Every tick also refetched both evidence photographs and
+// dropped whatever had keyboard focus. A tick that reads what is already drawn
+// now draws nothing.
+//
+// inFlight and actionFailed are in the key because they change the screen
+// without any store changing — a button held disabled, the one sentence a
+// failed action gets. Whatever is not in the key is in forceRedraw().
+let lastDrawn = null;
+
+// An action settles by drawing the screen again whatever the stores say. The
+// button setWorking() disabled lives in the DOM and not in the model, so a
+// press that changes nothing on disk — adding a photograph the case already
+// holds — must still put it back; the model is identical either way, so only
+// this says so.
+function forceRedraw() {
+  lastDrawn = null;
+}
+
 async function tick() {
   // ⚠️ A poll that cannot be answered leaves the last good screen standing.
   // Without this, one unreachable request threw out of tick() unhandled and
@@ -92,6 +115,7 @@ async function act(action) {
     // behaviour. Cleared, then the original rejection still propagates
     // exactly as it did before this fix (deferred: nothing here catches it).
     inFlight.delete(action);
+    forceRedraw();
     // The same silence, one failure earlier: a request that never left is no
     // more visible to the buyer than one that came back refused, so they are
     // told here too. The rejection itself still propagates exactly as it did.
@@ -102,6 +126,7 @@ async function act(action) {
   // Cleared before either recovery path renders, so that render already
   // reflects the settled truth instead of a guard about to be lifted.
   inFlight.delete(action);
+  forceRedraw();
   if (!res.ok) return setFailed(action, await res.text());
   await tick();
 }
@@ -126,8 +151,15 @@ function render(model) {
     return;
   }
 
-  app.textContent = "";
   lastModel = model;
+
+  // Checked after lastModel is kept and before anything is cleared: the model
+  // is confirmed by a store read either way, and only the drawing is skipped.
+  const drawn = JSON.stringify([model, [...inFlight], actionFailed]);
+  if (drawn === lastDrawn) return;
+  lastDrawn = drawn;
+
+  app.textContent = "";
   if (Array.isArray(model)) return renderList(model);
   return renderPurchase(model);
 }

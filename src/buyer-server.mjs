@@ -13,7 +13,7 @@ import { readFileSync, statSync } from "node:fs";
 import { extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { viewFor } from "./buyer-view.mjs";
-import { NoCaseInputError, UnknownPhotoError } from "./case-input.mjs";
+import { ForeignCaseError, NoCaseInputError, UnknownPhotoError } from "./case-input.mjs";
 import { loadEnv, ROOT } from "./env.mjs";
 
 // A few kilobytes, never more: the photos body is one short JSON object
@@ -251,6 +251,17 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
       // does not exist.
       if (err instanceof UnknownPhotoError) return send(res, 404, { error: err.message });
       if (err instanceof NoCaseInputError) return send(res, 404, { error: err.message });
+      // The third absence, and the one that costs most if it is answered any
+      // other way: the case exists, but it is not one these photographs
+      // describe, so there is no photograph here to add. Writing anyway would
+      // replace that case's evidence with another case's in the component the
+      // mediator reads — silently, and reported as success.
+      if (err instanceof ForeignCaseError) return send(res, 404, { error: err.message });
+      // ⚠️ Deliberately not an absence, and so deliberately not a 404: a
+      // fixture whose photographs region cannot be found is a file someone
+      // edited by hand into a shape the writer refuses to guess at. That is a
+      // broken component, which is what a 500 says, and the operator log below
+      // is how it gets fixed.
       console.error(err);
       return send(res, 500, { error: err.message });
     }

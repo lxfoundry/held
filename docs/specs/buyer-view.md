@@ -154,6 +154,20 @@ buttons:
 Both clauses are true and each answers one button, in the order the buttons appear. `{date}` is
 `redeemedAt + disputePeriodMs` off the record — never a written-in date.
 
+Two rules follow from that being **the only warning they get**, and they are the same rule twice:
+*a date on this line is a claim, and a wrong one costs the buyer their money.*
+
+- **Both terms, or no line.** The record permits a null `redeemedAt`, and `null + a period` is not
+  an error — it is an instant in January 1970. Where either term is not a number the notice is
+  **omitted**, never rendered from what is there. The buttons are unaffected: the deadline is
+  unstated, not the purchase.
+- **Read against the buyer's calendar**, which is a fixed zone and not the machine's. These are
+  instants; a date is what a person reads off a calendar. Formatted in UTC, a deadline half an hour
+  past midnight shows as the day before — telling the buyer to act a day early — and formatted in
+  the serving machine's own zone, the date on screen would depend on which laptop drew it.
+  A carrier's scan in the parcel timeline is the **one exception and reads its own clock**: it
+  carries the offset it was stamped with, and shows the time printed on the scan.
+
 Why this line is required rather than decorative:
 
 - **Completing is optional.** If the buyer does nothing the dispute period elapses and the seller is
@@ -197,11 +211,11 @@ operator's choice becomes an action that is enabled, or one drawn disabled with 
 A client that dropped an action the model reported as enabled would leave the buyer reading the
 mediator's question with no visible way to answer it — so it draws what it is told.
 
-⚠️ Adding a photograph takes no operator setting of any kind. The mediator asked the buyer a
-question, and the control that answers it is enabled whenever the question is on screen — a
-permanently disabled primary control under a request for evidence is an interface that cannot be
-used as drawn. *Which* photograph is attached is a branch of the demonstration and remains the
-operator's, but it is a lookup in the rounds table (§8.3) and never a reason to refuse the press.
+⚠️ **Adding a photograph takes no such setting, and is never drawn disabled** (§8.3). Which branch
+of the damage case to attach is an operator's decision, but it is not a decision about *whether* the
+buyer may answer: it reaches the server in the page's own URL, is sent back in the `photos` request
+body, and never appears in the buyer's model. `photos` — the photographs the case already holds —
+is an input to the model for the opposite reason: it is what §8.4 draws back to the buyer.
 
 ### 6.1 · Where the item comes from
 
@@ -361,6 +375,20 @@ written, so text that would not parse is never the text on disk.
 carries the listing and the message thread, so a file written by this action alone would hold
 photographs and neither of those — a purchase the view omits for having no listing (§6.1). An absent
 case is refused rather than invented.
+
+⚠️ **Nor is a case that stands at no round.** Applying a round sets the whole list of photographs at
+once, so on a case holding evidence these rounds do not describe, this action would not add a
+photograph — it would **replace that case's evidence with another case's**, silently, in the file
+the mediator reads to decide what a buyer is owed. The precondition is therefore that the case
+already stands at one of the rounds, and it is checked before anything is written:
+
+- **any** round, not the one the move opens from, because the branches are alternatives within one
+  slot — a case at the crushed branch takes the intact carton and becomes a case at the intact one;
+- a case holding **no** photographs stands at no round, so it is refused too: the opening round *is*
+  the first photograph, and no move reaches it. §6.1's "`photos` and `messages` are simply absent"
+  describes exactly this shape, and a purchase in it has nothing here to add;
+- the refusal is an **absence — `404`** — and not a `500`. There is no photograph here to attach;
+  nothing is broken.
 
 ### 8.4 · What the buyer has sent is on the screen
 

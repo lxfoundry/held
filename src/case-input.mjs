@@ -26,7 +26,7 @@
 
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { addablePhotos, applyPhotos, roundAdding } from "./case-fixture.mjs";
+import { addablePhotos, applyPhotos, roundAdding, roundStoodAt } from "./case-fixture.mjs";
 
 // Thrown for a photo id that names no photograph a case can be moved to hold —
 // including a traversal attempt, which is simply another id that is not on the
@@ -46,6 +46,28 @@ export class NoCaseInputError extends Error {
   constructor(id) {
     super(`no case input at ${id}.json — a photograph is added to a case that exists, never used to create one`);
     this.name = "NoCaseInputError";
+  }
+}
+
+// Thrown when the case exists but is not one these photographs describe. The
+// rounds in src/case-fixture.mjs are the evidence of one demonstrated case, and
+// applying one sets the whole list at once — so on any other case this action
+// would not add a photograph, it would replace that case's evidence with
+// another case's, silently, in the component the mediator reads to decide.
+//
+// ⭐ The refusal is the same rule NoCaseInputError states one step earlier, and
+// docs/specs/buyer-view.md §8.3 states as "an absent case is refused rather than
+// invented": this action attaches a photograph that already exists to a case
+// that already holds its predecessors, and where either is untrue there is
+// nothing here to add. A case holding no photographs at all is that — the
+// opening round *is* the first photograph, so there is no move that reaches it.
+export class ForeignCaseError extends Error {
+  constructor(id, stood) {
+    super(
+      `case ${id} stands at ${stood ? `round ${stood}` : "no round these photographs define"}` +
+        " — adding one here would replace its evidence rather than extend it"
+    );
+    this.name = "ForeignCaseError";
   }
 }
 
@@ -114,6 +136,21 @@ export function createCaseInputStore(dir) {
       // and refusing says so where a plausible-looking file would not.
       throw new NoCaseInputError(safeId(exchangeId));
     }
+
+    // ⚠️ Which case this is, checked before it is written. applyPhotos sets the
+    // whole list of photographs at once, so on a case that is not this one it
+    // does not add — it replaces that case's evidence with this one's, and
+    // reports success.
+    //
+    // The check is "stands at a round these photographs define", and not "at
+    // the round this move opens from", because the branches are alternatives
+    // within one slot: a case at 2b takes the intact carton and becomes a case
+    // at 2, which is the rule §8.3 states and the two tests above it pin. Any
+    // round is therefore this case; no round is some other case, including a
+    // case holding no photographs at all, since the opening round *is* the
+    // first photograph and no move reaches it.
+    const stood = roundStoodAt(JSON.parse(before));
+    if (stood === undefined) throw new ForeignCaseError(safeId(exchangeId), stood);
 
     const after = applyPhotos(before, round);
     // Belt and braces over a text edit to a JSON file, the check
