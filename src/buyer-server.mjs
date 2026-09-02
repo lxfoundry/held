@@ -14,7 +14,14 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { viewFor } from "./buyer-view.mjs";
 import { NotBuiltError } from "./resolution.mjs";
+import { UnknownPhotoError } from "./case-input.mjs";
 import { loadEnv, ROOT } from "./env.mjs";
+
+// A few kilobytes, never more: the photos body is one short JSON object
+// naming a photograph that already exists, not an image — see the "photos"
+// branch of run() below. Anything near this size is already a caller doing
+// something other than what this route accepts.
+const MAX_PHOTO_BODY_BYTES = 4 * 1024;
 
 // ⚠️ A constant, never a setting. Nothing here reads HOST from the
 // environment or a flag: the wallet credentials this process holds are safe
@@ -60,7 +67,33 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
     });
   }
 
-  async function run(res, id, name) {
+  // Body-reading discipline follows src/receiver.mjs's readBody: accumulate
+  // and refuse anything over the cap. The cap here is a fraction of the
+  // receiver's, because this is never more than one short JSON object — see
+  // MAX_PHOTO_BODY_BYTES above. Chunks are coerced to Buffer rather than
+  // assumed to be one: the receiver's own request objects deliver Buffers,
+  // but nothing here should throw if a caller (or a test double) hands it a
+  // string instead.
+  function readSmallBody(req, maxBytes) {
+    return new Promise((resolvePromise, reject) => {
+      const chunks = [];
+      let size = 0;
+      req.on("data", (chunk) => {
+        const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        size += buf.length;
+        if (size > maxBytes) {
+          reject(Object.assign(new Error("body too large"), { status: 413 }));
+          if (typeof req.destroy === "function") req.destroy();
+          return;
+        }
+        chunks.push(buf);
+      });
+      req.on("end", () => resolvePromise(Buffer.concat(chunks).toString("utf8")));
+      req.on("error", reject);
+    });
+  }
+
+  async function run(res, id, name, req) {
     if (name === "complete" && !allowConfirm) {
       // ⚠️ The buyer's screen never learns an environment variable's name —
       // src/buyer-view.mjs renders a neutral reason instead. This is the one
@@ -76,13 +109,44 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
     if (typeof actions[name] !== "function") {
       return send(res, 501, { error: `${name} is not implemented` });
     }
+
+    // ⭐ Task 6c: the one action that needs more than an exchange id. The
+    // server reads and validates the body itself — a wrong or missing
+    // "photo" key is refused here, before any action is called, so a bad
+    // request never reaches store.addPhoto as a thrown TypeError laundered
+    // into a 500. Every other action ignores body entirely.
+    let body = null;
+    if (name === "photos") {
+      let raw;
+      try {
+        raw = await readSmallBody(req, MAX_PHOTO_BODY_BYTES);
+      } catch (err) {
+        const status = err.status ?? 400;
+        console.error(`rejected photos body for exchange ${id}: ${err.message}`);
+        return send(res, status, { error: "unreadable body" });
+      }
+      try {
+        body = JSON.parse(raw);
+      } catch {
+        console.error(`photos body for exchange ${id} is not JSON`);
+        return send(res, 400, { error: "body must be JSON" });
+      }
+      if (typeof body?.photo !== "string" || body.photo === "") {
+        console.error(`photos body for exchange ${id} has no "photo" id`);
+        return send(res, 400, { error: 'body must include a "photo" id' });
+      }
+    }
+
     try {
-      await actions[name]({ exchangeId: id });
+      await actions[name]({ exchangeId: id, body });
       return send(res, 200, modelFor(id) ?? {});
     } catch (err) {
       // ⚠️ 501, never 200. The client renders what it is told, and telling it
       // an unsettled proposal settled is the one failure to prevent.
       if (err instanceof NotBuiltError) return send(res, 501, { error: err.message });
+      // A photo id that names nothing under fixtures/case/photos/ — including
+      // a traversal attempt, which is simply another id that is not there.
+      if (err instanceof UnknownPhotoError) return send(res, 404, { error: err.message });
       console.error(err);
       return send(res, 500, { error: err.message });
     }
@@ -136,7 +200,7 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
         // (err.message throwing on null/undefined) and a send() that fails
         // once headers are already out — reject silently, the client's
         // 2-second poll never gets a response, and sockets accumulate.
-        return run(res, action[1], action[2]).catch(() =>
+        return run(res, action[1], action[2], req).catch(() =>
           send(res, 500, { error: "the request could not be handled" })
         );
       }
@@ -160,6 +224,7 @@ if (isEntryPoint) {
   const { createExchangeStore } = await import("./exchanges.mjs");
   const { createStore } = await import("./store.mjs");
   const { createCaseStore } = await import("./cases.mjs");
+  const { createCaseInputStore } = await import("./case-input.mjs");
   const { createAuthorisationStore } = await import("./authorisations.mjs");
   const { complete } = await import("./completion.mjs");
   const { raiseFor, confirmedAt } = await import("./disputes.mjs");
@@ -188,18 +253,12 @@ if (isEntryPoint) {
   const authorisations = createAuthorisationStore(join(ROOT, "state/authorisations"));
 
   // The listing block, photos and messages live in fixtures/case/<id>.json —
-  // the same file scripts/mediate.mjs reads for the same exchange. Absence is
-  // not an error: modelFor() already treats a missing listing as "omit this
-  // purchase, log why", per spec §11.
-  function readListingFixture(id) {
-    try {
-      return JSON.parse(readFileSync(join(ROOT, "fixtures/case", `${id}.json`), "utf8"));
-    } catch (err) {
-      if (err.code === "ENOENT") return null;
-      throw err;
-    }
-  }
-  const listings = { read: readListingFixture };
+  // the same file scripts/mediate.mjs reads for the same exchange, and the
+  // same file the "Add a photo" action appends to. Absence is not an error:
+  // modelFor() already treats a missing listing as "omit this purchase, log
+  // why", per spec §11.
+  const caseInput = createCaseInputStore(join(ROOT, "fixtures/case"));
+  const listings = { read: caseInput.read };
 
   // ⭐ Connected lazily, on the first action that actually needs the chain.
   // Every GET the buyer's screen polls is answered from the stores alone, so
@@ -293,12 +352,14 @@ if (isEntryPoint) {
     );
 
   // ⭐ Ruling 2: pre-bound callables. The handler above calls
-  // actions[name]({ exchangeId }) with exactly one argument, so everything
+  // actions[name]({ exchangeId, body }) with exactly these two, so everything
   // else each real function needs is closed over here rather than threaded
-  // through the request path.
+  // through the request path. Every action but photos ignores body — it is
+  // the one action that carries anything beyond which exchange it is for.
   const actions = {
     complete: ({ exchangeId }) => complete({ exchangeId, exchanges, authorisations, chain, execute: true }),
     raise: ({ exchangeId }) => raiseFor({ exchangeId, by: "buyer", exchanges, authorisations, relay, confirm }),
+    photos: ({ exchangeId, body }) => caseInput.addPhoto(exchangeId, body.photo),
     // buyerPercent is unused by settle() today — it throws unconditionally
     // until mutual resolution is implemented — but the call keeps the shape
     // src/resolution.mjs declares.
