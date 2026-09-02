@@ -22,7 +22,7 @@ import { createStore } from "../src/store.mjs";
 import { createExchangeStore } from "../src/exchanges.mjs";
 import { createAuthorisationStore } from "../src/authorisations.mjs";
 import { createWatchdog } from "../src/watchdog.mjs";
-import { ESCALATE_LEAD, RAISE_LEAD, assertLeadSane, leadMs } from "../src/adapter.mjs";
+import { ESCALATE_LEAD, RAISE_LEAD, assertLeadSane, leadMs, outcomeFor } from "../src/adapter.mjs";
 
 const MS = 1000;
 const once = process.argv.includes("--once");
@@ -96,7 +96,6 @@ async function readChainState(exchangeId) {
   // both false and load-bearing, because it is what the buyer's money line
   // reads. Null means "not yet" here, and the sweep merges only facts, so it
   // leaves whatever the record already holds.
-  const settled = (outcome) => (finalisedAt == null ? null : outcome);
 
   if (!dispute.exists) {
     // No dispute: once finalised, the exchange either completed or its window
@@ -108,7 +107,10 @@ async function readChainState(exchangeId) {
     // path — and the on-chain state enum is not exposed by the SDK, so it is
     // reported as paid rather than guessed at from an unverified enum ordering.
     return {
-      finalisedAt, outcome: settled("paid"),
+      finalisedAt,
+      ...(finalisedAt == null
+        ? { outcome: null, buyerPercent: null }
+        : outcomeFor(0)),
       disputeRaisedAt: null, disputeTimeoutAt: null, escalatedAt: null,
     };
   }
@@ -119,7 +121,9 @@ async function readChainState(exchangeId) {
     // claims. Exact for every path this system takes: the watchdog raises, and
     // a raised dispute settles through a percentage. An open dispute has
     // settled nothing yet, so it too reports no outcome until it finalises.
-    outcome: settled(dispute.dispute.buyerPercent.isZero() ? "paid" : "returned"),
+    ...(finalisedAt == null
+      ? { outcome: null, buyerPercent: null }
+      : outcomeFor(dispute.dispute.buyerPercent.toNumber())),
     disputeRaisedAt: disputed.isZero() ? null : Number(disputed) * MS,
     disputeTimeoutAt: timeout.isZero() ? null : Number(timeout) * MS,
     escalatedAt: escalated.isZero() ? null : Number(escalated) * MS,

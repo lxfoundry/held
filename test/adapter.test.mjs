@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  ACTIONS, decide, leadMs, assertLeadSane, RAISE_LEAD, ESCALATE_LEAD, MalformedRecordError,
+  ACTIONS, decide, leadMs, assertLeadSane, RAISE_LEAD, ESCALATE_LEAD, MalformedRecordError, outcomeFor,
 } from "../src/adapter.mjs";
 
 const HOUR = 3_600_000;
@@ -278,4 +278,11 @@ test("a lead that is not a number is raised rather than silently standing down",
     () => decide({ tracking: tracking(), record: record(), now: NEARING, leads: { raiseMs: NaN, escalateMs: NaN } }),
     MalformedRecordError
   );
+});
+
+test("basis points become the three endings, and a percentage the view can render", () => {
+  assert.deepEqual(outcomeFor(0), { outcome: "paid", buyerPercent: 0 });
+  assert.deepEqual(outcomeFor(10000), { outcome: "returned", buyerPercent: 100 });
+  assert.deepEqual(outcomeFor(2000), { outcome: "split", buyerPercent: 20 });
+  assert.deepEqual(outcomeFor(9999), { outcome: "split", buyerPercent: 99.99 });
 });
