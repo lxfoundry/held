@@ -128,9 +128,14 @@ function timelineFrom(events) {
   return entries.length ? entries : null;
 }
 
+// ⚠️ The round *is* the result. scripts/mediate.mjs writes the model's answer
+// flat, with bundleHash beside it, and src/clerk.mjs reads it the same way —
+// there is no `result` key on a round and there never has been. Reading for one
+// meant every real case looked like it had produced no round, so the mediator's
+// question, its proposal and both actions were unreachable outside a test.
 function lastRound(caseRecord) {
   const rounds = caseRecord?.rounds ?? [];
-  return rounds.length ? rounds[rounds.length - 1]?.result ?? null : null;
+  return rounds.length ? rounds[rounds.length - 1] ?? null : null;
 }
 
 // ⭐ The split currently on the buyer's screen, or null when the case is not at

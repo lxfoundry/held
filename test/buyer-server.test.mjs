@@ -409,8 +409,8 @@ test("a store that cannot be rendered after a successful action is not reported 
 const inMediation = {
   exchanges: { get: () => ({ ...record, disputeRaisedAt: 1, disputeRaisedBy: "buyer" }), all: () => [record] },
   cases: {
-    read: () => ({ exchangeId: "241", rounds: [{ result: { status: "needs_evidence",
-      requests: [{ to: "buyer", asks: "Can you photograph the outer shipping carton?" }] } }] }),
+    read: () => ({ exchangeId: "241", rounds: [{ status: "needs_evidence",
+      requests: [{ to: "buyer", asks: "Can you photograph the outer shipping carton?" }] }] }),
   },
 };
 

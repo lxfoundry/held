@@ -23,6 +23,26 @@ const view = (over = {}) =>
   viewFor({ record: record(), tracking: tracking(), caseRecord: null, listing,
             events: [], allowConfirm: true, allowPhoto: true, allowSettle: true, ...over });
 
+// ⚠️ The shape scripts/mediate.mjs actually writes: a round is the model's
+// result with bundleHash beside it, flat, and src/clerk.mjs reads it that way
+// too. This view used to look for the result one level down under `result`, a
+// key nothing has ever written — so every real case read as having produced no
+// round at all, and neither the mediator's question nor its proposal nor either
+// action could reach the screen.
+test("⭐ a round is read in the shape the mediator writes it, not one level down", () => {
+  const v = view({
+    tracking: tracking({ current: "delivered", delivered: true }),
+    record: record({ disputeRaisedAt: 1, disputeRaisedBy: "buyer" }),
+    caseRecord: { exchangeId: "241", model: "a-model", rounds: [
+      { status: "proposal", buyerPercent: 30, reasoning: "One box of four.",
+        findings: [], replayed: true, bundleHash: "abc123" },
+    ] },
+  });
+  assert.equal(v.mediation.proposal.refund, "£60");
+  assert.equal(v.mediation.proposal.reasoning, "One box of four.");
+  assert.ok(v.actions.some((a) => a.id === ACTIONS.SETTLE));
+});
+
 test("ACTIONS.PHOTO is the literal route segment the client posts to", () => {
   // Pinned as a literal, not compared against itself: every other test refers
   // to ACTIONS.PHOTO symbolically, so a regression to "photo" — the original,
@@ -97,8 +117,8 @@ test("an evidence request becomes the question and the photo action", () => {
   const v = view({
     tracking: tracking({ current: "delivered", delivered: true }),
     record: record({ disputeRaisedAt: 1, disputeRaisedBy: "buyer" }),
-    caseRecord: { exchangeId: "241", rounds: [{ result: { status: "needs_evidence",
-      requests: [{ to: "buyer", asks: "Can you photograph the outer shipping carton?" }] } }] },
+    caseRecord: { exchangeId: "241", rounds: [{ status: "needs_evidence",
+      requests: [{ to: "buyer", asks: "Can you photograph the outer shipping carton?" }] }] },
   });
   assert.equal(v.mediation.question, "Can you photograph the outer shipping carton?");
   assert.equal(v.actions.find((a) => a.id === ACTIONS.PHOTO).enabled, true);
@@ -113,8 +133,8 @@ test("with no photograph on offer the action is still drawn, disabled and truthf
   const v = view({
     tracking: tracking({ current: "delivered", delivered: true }),
     record: record({ disputeRaisedAt: 1, disputeRaisedBy: "buyer" }),
-    caseRecord: { exchangeId: "241", rounds: [{ result: { status: "needs_evidence",
-      requests: [{ to: "buyer", asks: "Can you photograph the outer shipping carton?" }] } }] },
+    caseRecord: { exchangeId: "241", rounds: [{ status: "needs_evidence",
+      requests: [{ to: "buyer", asks: "Can you photograph the outer shipping carton?" }] }] },
     allowPhoto: false,
   });
   const photo = v.actions.find((a) => a.id === ACTIONS.PHOTO);
@@ -126,8 +146,8 @@ test("mediation carries nothing the screen does not draw", () => {
   const v = view({
     tracking: tracking({ current: "delivered", delivered: true }),
     record: record({ disputeRaisedAt: 1, disputeRaisedBy: "buyer" }),
-    caseRecord: { exchangeId: "241", rounds: [{ result: { status: "needs_evidence",
-      requests: [{ to: "buyer", asks: "Can you photograph the outer shipping carton?" }] } }] },
+    caseRecord: { exchangeId: "241", rounds: [{ status: "needs_evidence",
+      requests: [{ to: "buyer", asks: "Can you photograph the outer shipping carton?" }] }] },
   });
   assert.deepEqual(Object.keys(v.mediation).sort(), ["proposal", "question"]);
 });
@@ -135,8 +155,8 @@ test("mediation carries nothing the screen does not draw", () => {
 const proposal = (over = {}) => ({
   tracking: tracking({ current: "delivered", delivered: true }),
   record: record({ disputeRaisedAt: 1, disputeRaisedBy: "buyer" }),
-  caseRecord: { exchangeId: "241", rounds: [{ result: { status: "proposal",
-    buyerPercent: 20, reasoning: "The carton is intact." } }] },
+  caseRecord: { exchangeId: "241", rounds: [{ status: "proposal",
+    buyerPercent: 20, reasoning: "The carton is intact." }] },
   ...over,
 });
 
@@ -181,8 +201,8 @@ test("a proposal's amount and the ending it settles to are formatted identically
   const proposal = view({
     tracking: tracking({ current: "delivered", delivered: true }),
     record: record(disputed),
-    caseRecord: { exchangeId: "241", rounds: [{ result: { status: "proposal",
-      buyerPercent: 33.3, reasoning: "The carton is crushed." } }] },
+    caseRecord: { exchangeId: "241", rounds: [{ status: "proposal",
+      buyerPercent: 33.3, reasoning: "The carton is crushed." }] },
   });
   const settled = view({ record: record({ finalisedAt: 1, outcome: "split", buyerPercent: 33.3 }) });
   assert.equal(proposal.mediation.proposal.refund, "£66.60");
