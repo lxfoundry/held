@@ -24,7 +24,8 @@
     "raise": "node scripts/raise-dispute.mjs",
     "mediate": "node scripts/mediate.mjs",
     "buyer": "node src/buyer-server.mjs",
-    "demo-reset": "node scripts/demo-reset.mjs"
+    "demo-reset": "node scripts/demo-reset.mjs",
+    "demo-states": "node scripts/demo-states.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.122.0",

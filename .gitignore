@@ -103,3 +103,12 @@ deploy-state.local.json
 
 # Live state: exchange records and the pre-signed authorisations.
 state/
+
+# --- Demonstration purchases (scripts/demo-states.mjs) ---
+# One purchase per screen state the buyer's view can reach, generated on demand
+# and removed again with --clean. The exchange and case records land under
+# state/ and are already covered above; these two live in committed directories,
+# so they are matched by name instead. The id range and the "demo-" tracker
+# prefix are what keeps that possible — see src/demo-states.mjs.
+fixtures/case/999999*.json
+fixtures/events/demo-*

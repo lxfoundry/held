@@ -269,12 +269,12 @@ URL:
 
 - `?purchase=<exchangeId>` — show one purchase. Omitted, the page shows the list of every purchase
   the view can render.
-- `?photo=<photoId>` — which photograph the "add evidence" action attaches, once a dispute is open
-  and evidence has been requested. The view never guesses which photograph to send on the buyer's
-  behalf: absent, the action is drawn disabled and says so, rather than vanishing from a screen
-  that is asking the buyer for a photograph. The id names one of the photographs a case can be
-  *added* — the opening round's own evidence is already on file and is refused like anything else,
-  and the case file is left alone.
+- `?photo=<photoId>` — **optional.** Which photograph the "add evidence" action attaches, once a
+  dispute is open and evidence has been requested. Absent, the action still works and attaches the
+  first photograph the rounds declare; the parameter selects the other branch of the damage case.
+  It changes what a press attaches and nothing about what is drawn — the model is identical either
+  way. The id names one of the photographs a case can be *added*; the opening round's own evidence
+  is already on file and is refused like anything else, leaving the case file alone.
 
 Environment variables, read once at startup:
 
@@ -332,6 +332,19 @@ down on a delivered parcel, because tracking proves arrival, not condition. **No
 dispute on behalf of a buyer whose parcel arrived broken.** If they do not press "Something's wrong"
 before the period elapses, the seller is paid and it is final.
 
+### What the buyer has sent is on the screen
+
+Once a dispute is open, the screen shows the photographs already on the case — a count
+(*"2 photos added"*) and the thumbnails themselves, beneath the mediator's question and above the
+button that adds to it. So pressing "Add a photo" visibly changes the thing it is about.
+
+Each thumbnail is addressed by its **position** in that case's own list, never by name and never by
+path: `GET /api/purchases/:id/photos/:position`. The model carries no filename, so an integer is the
+only thing a caller controls, and the server bounds it against the list, checks the file it resolved
+to sits inside the photographs directory, and checks the extension against a three-entry allow-list
+before reading a byte. Full reasoning in
+[`docs/specs/buyer-view.md`](docs/specs/buyer-view.md) §8.4.
+
 ### The listing requirement
 
 The exchange record itself holds no item title, price or image — it is protocol state, and giving
@@ -349,6 +362,55 @@ The view instead reads a `listing` block from `fixtures/case/<exchangeId>.json`:
 with no case at all still needs the `listing` block on its own. **A purchase whose exchange id has
 no such file is omitted from the list, and logged loudly** — never rendered half-drawn with a blank
 title and no price.
+
+### `npm run demo-states`
+
+The view is a pure read over three stores, so every screen it can draw is some arrangement of those
+stores and nothing else. Reaching one by hand means editing JSON and remembering which fields
+produce which screen. This writes the whole table at once — one purchase per state:
+
+```bash
+npm run demo-states                    # report, change nothing
+npm run demo-states -- --execute       # write them
+npm run demo-states -- --clean --execute   # remove them again
+```
+
+Then open `http://127.0.0.1:3100/` with no `?purchase=` and the list holds a card for each:
+
+| Purchase | State |
+|---|---|
+| `99999901` | on its way, with the carrier's own scans in the timeline |
+| `99999902` | the courier couldn't deliver it |
+| `99999903` | waiting for collection — the state that stands the watchdog down permanently |
+| `99999904` | an exception in transit |
+| `99999905` | it arrived: both buttons, and the date the seller is paid regardless |
+| `99999906` | it never arrived and the watchdog raised the dispute |
+| `99999913` | the buyer said something's wrong, and nothing has been sent yet |
+| `99999907` | the mediator has asked the buyer for a photograph |
+| `99999908` | the mediator has proposed a number |
+| `99999909` | escalated — a person has the case |
+| `99999910` | ended: the seller was paid |
+| `99999911` | ended: the money came back |
+| `99999912` | ended: they split it |
+
+The table itself is [`src/demo-states.mjs`](src/demo-states.mjs), and every entry declares the state
+it claims to produce. `test/demo-states.test.mjs` renders all of them through the real view and
+checks those claims, so the catalogue is a table-driven test of the whole view rather than
+documentation that can drift from it. The two mediation screens are seeded from committed recordings
+of real model calls, so the question and the reasoning shown are the model's own words.
+
+⚠️ **These are demonstration records, not exchanges.** Nothing on any chain corresponds to them and
+none carries a pre-signed authorisation, so an action pressed on one fails — which is the only way
+to see the "that didn't go through" screen, and is itself one of the states. The exception is
+`99999907`, where "Add a photo" genuinely rewrites the local evidence file exactly as it does for a
+real case: open it, press the button, and the evidence block goes from one photograph to two. Add
+`&photo=carton-crushed` to attach the crushed carton instead — that is the comparison the two
+branches exist for.
+
+The eight-digit id range cannot collide with an id the protocol assigned, and it is what `--clean`
+matches on. Everything the script writes is gitignored by name — the exchange and case records land
+under `state/`, and the listing and tracker files are matched by their id and their `demo-` prefix —
+so it leaves no diff behind.
 
 ### `npm run replay`
 
