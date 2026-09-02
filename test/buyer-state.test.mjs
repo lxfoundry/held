@@ -39,6 +39,18 @@ test("a refunded exchange says the money has been returned", () => {
   assert.equal(moneyLine(record({ finalisedAt: 1, outcome: "returned" })).key, "returned");
 });
 
+// I-6: the third branch was a fall-through, so a finalised record with no
+// outcome — or one this module has never heard of — asserted "Seller has been
+// paid" on a record that says nothing of the sort. src/exchanges.mjs skips null
+// fields on write and get() does not validate, so the absence is reachable.
+test("an outcome this module does not recognise states no ending at all", () => {
+  for (const outcome of [undefined, null, "", "refunded", 0]) {
+    const line = moneyLine(record({ finalisedAt: 1, outcome }), { priceText: "200", currency: "£" });
+    assert.equal(line.key, "held", `outcome ${JSON.stringify(outcome)} must not read as paid`);
+    assert.equal(line.meta, null);
+  }
+});
+
 test("a parcel with no events yet is on its way", () => {
   assert.equal(parcelLine({ tracking: null, record: record() }).key, "on_its_way");
   assert.equal(parcelLine({ tracking: tracking({ current: "pending" }), record: record() }).key, "on_its_way");

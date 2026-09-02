@@ -82,13 +82,14 @@ export function moneyLine(record, { priceText = null, currency = "£", finalised
   // presentational fact, never a claim about what the chain moved.
   const price = priceText == null ? null : `${currency}${priceText}`;
 
-  if (record.outcome !== "split") {
-    if (record.outcome === "returned") {
-      return {
-        ...line("returned"),
-        meta: price == null ? null : fill(BUYER_STRINGS.returned_meta, { price }),
-      };
-    }
+  if (record.outcome === "returned") {
+    return {
+      ...line("returned"),
+      meta: price == null ? null : fill(BUYER_STRINGS.returned_meta, { price }),
+    };
+  }
+
+  if (record.outcome === "paid") {
     return {
       ...line("paid"),
       meta:
@@ -98,14 +99,24 @@ export function moneyLine(record, { priceText = null, currency = "£", finalised
     };
   }
 
-  // Without a price there is no amount to state, and stating a fraction is
-  // honest where inventing a number is not.
-  const percent = record.buyerPercent;
-  const refund =
-    priceText == null
-      ? `${percent}%`
-      : `${currency}${formatAmount((Number(priceText) * percent) / 100)}`;
-  return { ...line("split", { refund }), meta: BUYER_STRINGS.split_meta };
+  if (record.outcome === "split") {
+    // Without a price there is no amount to state, and stating a fraction is
+    // honest where inventing a number is not.
+    const percent = record.buyerPercent;
+    const refund =
+      priceText == null
+        ? `${percent}%`
+        : `${currency}${formatAmount((Number(priceText) * percent) / 100)}`;
+    return { ...line("split", { refund }), meta: BUYER_STRINGS.split_meta };
+  }
+
+  // ⚠️ Explicit, because this used to be the fall-through: an outcome that is
+  // absent, or one this module has never heard of, would then have asserted
+  // "Seller has been paid" — that the buyer's money is gone — on a record that
+  // says no such thing. src/exchanges.mjs skips null fields when it writes and
+  // does not validate what it reads, so the absence is reachable. The record
+  // holds no outcome, so the line states none.
+  return { ...line("held"), meta: null };
 }
 
 // Whole pounds where the split is whole, two places where it is not. A refund

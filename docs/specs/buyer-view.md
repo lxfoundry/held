@@ -97,9 +97,17 @@ Copy is exact. `{…}` is data resolved at render time.
 Each row is two parts. The bold sentence is `text` — the largest type on the screen, in every state.
 Everything after the middot is `meta` — a second, quieter line beneath it, filled from the matching
 `*_meta` string in `BUYER_STRINGS` (`paid_meta`, `returned_meta`, `split_meta`). `moneyLine()` returns
-`{ key, text, meta }`; `meta` is `null` exactly when `held` is — the money hasn't finalised, so there
-is nothing yet to add. `{date}` in `paid_meta` is `finalisedAt`, formatted the same way §5's deadline
+`{ key, text, meta }`; `meta` is `null` whenever the line is `held` — the money hasn't finalised, so
+there is nothing yet to add — and also on `paid` and `returned` for a listing that states no price,
+where a second line built from that price would have nothing to state. Only `split`'s second line is
+copy alone, and it is always present. `{date}` in `paid_meta` is `finalisedAt`, formatted the same way §5's deadline
 date is, so two dates on the same screen cannot disagree in style.
+
+An `outcome` that is absent, or one `moneyLine()` does not recognise, is **not an ending**: the line
+falls back to `held` rather than to any of the three. Each of the three asserts where the money went,
+and a record that names no outcome supports none of those assertions — least of all `paid`, which
+tells the buyer their money is gone. `src/exchanges.mjs` skips null fields when it writes and does
+not validate what it reads, so this is a state a store can hold, not a hypothetical.
 
 The two clean endings render green; **`split` renders amber**. A negotiated ending is neither of the
 other two, and colouring it as one of them repeats the error §3.1 fixes.
