@@ -12,6 +12,7 @@ import { createApp } from "../src/buyer-server.mjs";
 import { createCaseInputStore, UnknownPhotoError } from "../src/case-input.mjs";
 import { applyPhotos } from "../src/case-fixture.mjs";
 import { ROOT } from "../src/env.mjs";
+import { BUYER_STRINGS } from "../src/buyer-state.mjs";
 
 const listing = { title: "Four retired sets", priceText: "200", currency: "£" };
 
@@ -82,6 +83,17 @@ test("a purchase renders as a view model, not as a record", async () => {
 test("an unknown purchase is 404, not an empty view", async () => {
   const res = await call(app({ exchanges: { get: () => null, all: () => [] } }), "GET", "/api/purchases/999");
   assert.equal(res.status, 404);
+});
+
+// ⚠️ The client has no last good screen to fall back to before its first
+// successful read, so a failure body that carried only the diagnostic left the
+// page blank for as long as the failure lasted. The sentence is BUYER_STRINGS'
+// and travels in the body; the diagnostic stays beside it and stays unrendered.
+test("a 404 carries the buyer's sentence as well as the operator's diagnostic", async () => {
+  const res = await call(app({ exchanges: { get: () => null, all: () => [] } }), "GET", "/api/purchases/999");
+  const body = JSON.parse(res.body);
+  assert.equal(body.unavailable, BUYER_STRINGS.purchase_unavailable);
+  assert.equal(body.error, "unknown purchase");
 });
 
 test("completing is refused when the operator has not armed it", async () => {

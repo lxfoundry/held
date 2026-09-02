@@ -64,6 +64,13 @@ export const BUYER_STRINGS = {
   // reaches the buyer, so this is what they are told instead.
   action_failed: "That didn't go through. Have another go.",
 
+  // ⚠️ Drawn when a purchase cannot be read at all, which is the one screen
+  // that has no model behind it — so the server sends this sentence in the
+  // failure body beside its diagnostic, and the client draws it only when
+  // nothing else stands. Spec §11: a purchase whose store is unreadable renders
+  // as unavailable. Neutral, and it names nothing an operator would recognise.
+  purchase_unavailable: "This purchase can't be shown right now.",
+
   on_its_way: "On its way",
   needs_you: "The courier couldn't deliver it — it needs you",
   waiting_for_collection: "It's waiting for you to collect",

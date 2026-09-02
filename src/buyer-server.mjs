@@ -13,6 +13,7 @@ import { readFileSync, statSync } from "node:fs";
 import { extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { viewFor } from "./buyer-view.mjs";
+import { BUYER_STRINGS } from "./buyer-state.mjs";
 import { ForeignCaseError, NoCaseInputError, UnknownPhotoError } from "./case-input.mjs";
 import { loadEnv, ROOT } from "./env.mjs";
 
@@ -346,7 +347,15 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
         } catch (err) {
           console.error(`could not render exchange ${one[1]}: ${err.message}`);
         }
-        return model ? send(res, 200, model) : send(res, 404, { error: "unknown purchase" });
+        // ⭐ Two different things, for two different readers. `error` is the
+        // operator's diagnostic and the client never draws it; `unavailable` is
+        // the buyer's sentence, written in src/buyer-state.mjs with every other
+        // line on this screen. Without the second, a first load that failed
+        // left the page blank with no later poll able to fill it — there is no
+        // last good screen to fall back to before one has ever been drawn.
+        return model
+          ? send(res, 200, model)
+          : send(res, 404, { error: "unknown purchase", unavailable: BUYER_STRINGS.purchase_unavailable });
       }
 
       // ⭐ A photograph the buyer has already sent, addressed by its position
