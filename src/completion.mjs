@@ -33,6 +33,17 @@ export async function complete({ exchangeId, exchanges, authorisations, chain, e
 
   if (!execute) return { planned: true, finalisedAt: null, paid: null };
 
+  // ⚠️ Checked here, before anything is signed, even though it is not used
+  // until after the chain call. It is the one collaborator this function
+  // reaches for *after* the money has moved, so an omitted argument would
+  // otherwise surface as a TypeError with the seller already paid and the
+  // record never written — the single state this whole path exists to avoid.
+  // A plan-and-stop discards nothing, which is why the check sits below that
+  // return rather than with the record's own preconditions.
+  if (typeof authorisations?.discard !== "function") {
+    throw new Error(`completing exchange ${exchangeId} needs an authorisations store to discard`);
+  }
+
   const { finalisedAt, paid } = await chain.complete({ exchangeId, record });
 
   // ⭐ The exchange is over, so the pre-signed authorisations are spent:

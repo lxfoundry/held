@@ -190,7 +190,6 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
 
     try {
       await actions[name]({ exchangeId: id, body });
-      return send(res, 200, modelFor(id) ?? {});
     } catch (err) {
       // ⚠️ 501, never 200. The client renders what it is told, and telling it
       // an unsettled proposal settled is the one failure to prevent.
@@ -201,6 +200,21 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
       console.error(err);
       return send(res, 500, { error: err.message });
     }
+
+    // ⭐ Outside that try, deliberately. Everything above it can fail *instead
+    // of* the action; this fails *after* the action already happened — and
+    // completing paid a seller irreversibly. Reporting an unreadable store as
+    // a failed completion would tell the client the opposite of what is true,
+    // so a render failure is reported as itself: logged for the operator, and
+    // answered as the action's own success with nothing to draw. The next
+    // poll reconciles from the stores, as everywhere else here.
+    let model = null;
+    try {
+      model = modelFor(id);
+    } catch (err) {
+      console.error(`${name} succeeded for exchange ${id}, but the view could not be rendered: ${err.message}`);
+    }
+    return send(res, 200, model ?? {});
   }
 
   // Every path wrapped, as in the receiver: a request that cannot be handled
@@ -433,7 +447,34 @@ if (isEntryPoint) {
     // because there is nothing there — rather than one string comparison
     // standing between a stray request and an irreversible payment.
     ...(allowConfirm
-      ? { complete: ({ exchangeId }) => complete({ exchangeId, exchanges, authorisations, chain, execute: true }) }
+      ? {
+          complete: async ({ exchangeId }) => {
+            // ⚠️ Which side of the chain call a failure fell on, tracked the
+            // way scripts/confirm-receipt.mjs tracks it and reported in the
+            // same words. Everything after the protocol confirms is local
+            // bookkeeping, and a failure there means the seller has been paid
+            // and nothing on disk says so — an operator who reads only "✗"
+            // would re-run it and be told the exchange is already finalised,
+            // with no idea why.
+            let confirmed = false;
+            const watched = {
+              complete: async (args) => {
+                const result = await chain.complete(args);
+                confirmed = true;
+                return result;
+              },
+            };
+            try {
+              return await complete({ exchangeId, exchanges, authorisations, chain: watched, execute: true });
+            } catch (err) {
+              if (confirmed) {
+                console.error(`✗ ${err.message}`);
+                console.error(`  exchange ${exchangeId} is finalised and the seller has been paid, but this record was not updated`);
+              }
+              throw err;
+            }
+          },
+        }
       : {}),
     raise: ({ exchangeId }) => raiseFor({ exchangeId, by: "buyer", exchanges, authorisations, relay, confirm }),
     photos: ({ exchangeId, body }) => caseInput.addPhoto(exchangeId, body.photo),

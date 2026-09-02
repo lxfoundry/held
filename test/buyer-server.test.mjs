@@ -283,6 +283,24 @@ test("a non-error rejection from an action still answers, rather than hanging th
   assert.equal(res.status, 500);
 });
 
+// I-3: the window between an irreversible write and the render of its result.
+// modelFor() runs after the action, so a store it cannot read must not report
+// the action itself as failed — a completion that paid a seller answered as a
+// 500 is the worst lie this server can tell.
+test("a store that cannot be rendered after a successful action is not reported as a failed action", async () => {
+  let called = false;
+  const res = await call(
+    app({
+      allowConfirm: true,
+      actions: { complete: async () => { called = true; return {}; } },
+      listings: { read: () => { throw new Error("the listing file is unreadable"); } },
+    }),
+    "POST", "/api/purchases/241/complete",
+  );
+  assert.equal(called, true);
+  assert.equal(res.status, 200, "the action happened; only the view of it failed");
+});
+
 // --- who is calling ----------------------------------------------------------
 // ⚠️ Loopback is not a security boundary: this port is reachable from every
 // page in this buyer's browser, and a POST with no body and no custom header

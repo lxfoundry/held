@@ -68,6 +68,21 @@ test("a rejecting chain leaves the record exactly as it found it", async () => {
   assert.deepEqual(record.authorisations, PERMITTED_ACTIONS);
 });
 
+// I-3: authorisations is the one collaborator used *after* the chain call, so
+// an omitted argument becomes a TypeError with the seller already paid and the
+// record never written. Checked with the other preconditions instead — after
+// the plan-and-stop return, which never discards anything, and before anything
+// is signed.
+test("executing without an authorisations store refuses before it reaches the chain", async () => {
+  const exchanges = seeded(store());
+  const chain = { complete: () => assert.fail("must not reach the chain") };
+  await assert.rejects(
+    () => complete({ exchangeId: "241", exchanges, chain, execute: true }),
+    /authorisations/
+  );
+  assert.equal(exchanges.get("241").finalisedAt, null);
+});
+
 test("executing records the outcome the protocol reported", async () => {
   const exchanges = seeded(store());
   const chain = { complete: async () => ({ finalisedAt: 1234, paid: "0.2" }) };
