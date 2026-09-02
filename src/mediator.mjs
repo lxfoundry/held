@@ -90,6 +90,19 @@ function concludeFrom(result) {
   };
 }
 
+// ⭐ A round is a bundle that changed. Re-running against evidence nobody added
+// is not a second round, and counting it as one walks the case into the round
+// cap — which concludes on the generic "nothing further was provided in time"
+// rather than on anything the model argued. Typing the command twice was enough
+// to settle a case at a number the model only ever offered provisionally.
+//
+// A round recorded before the hash was kept carries none, so it cannot match and
+// falls through to the old behaviour rather than blocking a live case.
+export function isNewRound(caseRecord, bundleHash) {
+  const rounds = Array.isArray(caseRecord?.rounds) ? caseRecord.rounds : [];
+  return rounds.at(-1)?.bundleHash !== bundleHash;
+}
+
 export async function mediate({
   bundle,
   record,

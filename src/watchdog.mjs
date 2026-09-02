@@ -177,12 +177,21 @@ export function createWatchdog({
     discard(current.exchangeId, action);
 
     const at = now();
-    exchanges.update(
-      current.exchangeId,
-      action === ACTIONS.RAISE
-        ? { disputeRaisedAt: at, disputeRaisedBy: "watchdog" }
-        : { escalatedAt: at }
-    );
+    if (action === ACTIONS.RAISE) {
+      // ⭐ Read again, exactly as the attribution guard above does and for the
+      // same reason. confirm() asks whether a dispute exists, not whose it is,
+      // so a buyer raise landing since this step decided answers it too. The
+      // unconditional write that used to be here then signed this watchdog's
+      // name to the buyer's own raise — the inversion attribution exists to
+      // prevent, reached from the other side. A raise already recorded is
+      // somebody's, and is left alone.
+      const settled = exchanges.get(current.exchangeId);
+      if (settled?.disputeRaisedAt == null) {
+        exchanges.update(current.exchangeId, { disputeRaisedAt: at, disputeRaisedBy: "watchdog" });
+      }
+    } else {
+      exchanges.update(current.exchangeId, { escalatedAt: at });
+    }
     log(`✓ ${action} relayed for exchange ${current.exchangeId} — ${reason}`);
     return { ...result, relayed: true };
   }

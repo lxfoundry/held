@@ -426,3 +426,25 @@ test("F3 · a finalised exchange reports no authorisations", async () => {
 
   assert.deepEqual(exchanges.get("42").authorisations, []);
 });
+
+test("a buyer raise landing during the relay is not claimed by the watchdog", async () => {
+  // ⚠️ The sibling of the snapshot test above, and the half it did not close.
+  // Reading the record fresh fixed the *guard*; the write after confirm() was
+  // still unconditional. confirm() asks whether a dispute exists, not whose it
+  // is, so the buyer's dispute answers the watchdog's question too — and the
+  // watchdog then signed its own name to a raise the buyer made themselves.
+  let store = null;
+  const h = harness({
+    relayImpl: async (stored) => {
+      // The buyer's separate process, landing while this relay is in flight —
+      // after this step read the record, decided, and committed to relaying.
+      store.update("42", { disputeRaisedAt: 1, disputeRaisedBy: "buyer" });
+      return { transactionHash: "0xabc", stored };
+    },
+  });
+  store = h.exchanges;
+  await h.watchdog.sweep();
+  const record = h.exchanges.get("42");
+  assert.equal(record.disputeRaisedBy, "buyer", "the buyer's own raise was claimed by the watchdog");
+  assert.equal(record.disputeRaisedAt, 1, "and its time was overwritten with the watchdog's");
+});

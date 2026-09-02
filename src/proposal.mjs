@@ -41,7 +41,10 @@ function carriesNothing(value) {
 // `assumed` names the branch a concluded question fell back on, and a branch
 // carries its split — so it is the same leak as `wouldChange` wearing a
 // different name. It belongs to the record, not to what either party is shown.
-const INTERNAL = ["wouldChange", "provisional", "assumed"];
+// bundleHash joins them for a different reason: it is the case file's own
+// bookkeeping, the key that says which evidence a round ran against, and a party
+// reading a settlement has no use for a digest.
+const INTERNAL = ["wouldChange", "provisional", "assumed", "bundleHash"];
 
 const fail = (reason) => ({ ok: false, reason });
 

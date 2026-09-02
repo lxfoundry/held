@@ -53,9 +53,16 @@ export async function raiseFor({
   // The record's list is rewritten from the store rather than edited, so what an
   // operator is told protects this exchange cannot drift from what is held.
   authorisations.discard(exchangeId, "raiseDispute");
+
+  // ⚠️ The authorisations list is rewritten either way — the signature is spent
+  // whoever ends up attributed — but the raise itself is claimed only if no
+  // completed raise is already on the record. confirm() cannot tell whose
+  // dispute it saw, so a watchdog raise that landed first answers this one's
+  // confirm as well, and writing unconditionally would relabel it as the
+  // buyer's. Whoever recorded a completed raise owns it.
+  const settled = exchanges.get(exchangeId);
   exchanges.update(exchangeId, {
-    disputeRaisedAt: now(),
-    disputeRaisedBy: by,
+    ...(settled?.disputeRaisedAt == null ? { disputeRaisedAt: now(), disputeRaisedBy: by } : {}),
     authorisations: authorisations.list(exchangeId),
   });
   return stored;

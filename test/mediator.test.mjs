@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mediate, deadlineFor, shouldMediate } from "../src/mediator.mjs";
+import { mediate, deadlineFor, shouldMediate, isNewRound } from "../src/mediator.mjs";
 import { STATUS, forParty } from "../src/proposal.mjs";
 import { ESCALATE_LEAD, MalformedRecordError, leadMs } from "../src/adapter.mjs";
 import { UnusableModelResponse } from "../src/model.mjs";
@@ -405,4 +405,19 @@ test("a dispute raised at the epoch is still a dispute", () => {
 test("a case a person already has, or one already finished, is not mediated", () => {
   assert.equal(shouldMediate({ disputeRaisedAt: 0, escalatedAt: 5 }), false);
   assert.equal(shouldMediate({ disputeRaisedAt: 0, finalisedAt: 5 }), false);
+});
+
+test("a round is a bundle that changed, not a command run twice", async () => {
+  // ⚠️ The round count drives the cap, and the cap concludes the case on the
+  // generic "nothing further was provided in time" rather than on anything the
+  // model argued. Counting a re-run against unchanged evidence as a round meant
+  // typing the command twice could settle a case at a number nobody proposed.
+  const done = { rounds: [{ status: STATUS.NEEDS_EVIDENCE, bundleHash: "a".repeat(64) }] };
+  assert.equal(isNewRound(done, "a".repeat(64)), false, "an unchanged bundle counted as a new round");
+  assert.equal(isNewRound(done, "b".repeat(64)), true, "added evidence did not open a new round");
+  assert.equal(isNewRound({ rounds: [] }, "a".repeat(64)), true, "the first round never opened");
+  assert.equal(isNewRound(null, "a".repeat(64)), true, "a case with no file yet never opened a round");
+  // Rounds recorded before a hash was kept carry none, so they cannot match and
+  // keep the old behaviour rather than silently blocking a live case.
+  assert.equal(isNewRound({ rounds: [{ status: STATUS.PROPOSAL }] }, "a".repeat(64)), true);
 });

@@ -27,7 +27,7 @@ import { createExchangeStore } from "../src/exchanges.mjs";
 import { createStore } from "../src/store.mjs";
 import { createCaseStore, createRecordingStore } from "../src/cases.mjs";
 import { callModel } from "../src/model.mjs";
-import { DEFAULT_MAX_ROUNDS, mediate, shouldMediate } from "../src/mediator.mjs";
+import { DEFAULT_MAX_ROUNDS, isNewRound, mediate, shouldMediate } from "../src/mediator.mjs";
 import { forParty } from "../src/proposal.mjs";
 
 const args = process.argv.slice(2);
@@ -126,10 +126,24 @@ const attachments = photos.map((p) => ({ id: byPath.get(p.path), media_type: p.m
 const system = readFileSync(join(ROOT, "fixtures/case/system.md"), "utf8");
 
 const existing = cases.read(exchangeId) ?? { exchangeId, rounds: [], model: null, closedAt: null, outcome: null };
-const round = existing.rounds.length + 1;
+// ⚠️ Not rounds.length + 1 unconditionally. A re-run against a bundle nobody
+// added to is the same round asked again, and numbering it as the next one
+// walks the case into the cap. See isNewRound.
+const opening = isNewRound(existing, bundle.hash);
+const round = existing.rounds.length + (opening ? 1 : 0);
 
 console.log(`exchange ${exchangeId} — round ${round}, bundle ${bundle.hash.slice(0, 12)}`);
 console.log(`  ${bundle.items.length} evidence items, ${attachments.length} photograph${attachments.length === 1 ? "" : "s"}`);
+
+// Before the model is reached at all, and before the dry-run branch below: the
+// cost this guards against is not a request, it is a round. A dry run spent one
+// too, because it exits early only when there is no recording to replay.
+if (!opening) {
+  console.log(`
+· same bundle as round ${round} — nothing new to mediate`);
+  console.log(JSON.stringify(forParty(existing.rounds.at(-1)), null, 2));
+  process.exit(0);
+}
 
 if (!execute && !recordings.find(bundle.hash)) {
   console.log(`\nbundle ${bundle.hash.slice(0, 12)} has no recording — re-run with --execute to call the model`);
@@ -162,7 +176,10 @@ const result = await mediate({
 // the result is schema-bound and has no room for it, and the case file states
 // the model rather than leaving it to be inferred from a deployment date.
 const model = recordings.find(bundle.hash)?.model ?? existing.model;
-cases.write({ ...existing, model, rounds: [...existing.rounds, result] });
+// The hash is kept with the round so the next run can tell whether the evidence
+// moved. Without it a case file records what was answered but not what it was
+// answered about, and the question above cannot be asked.
+cases.write({ ...existing, model, rounds: [...existing.rounds, { ...result, bundleHash: bundle.hash }] });
 
 console.log(result.replayed ? "\n· replayed from a recording" : `\n· called the model (${model})`);
 // ⚠️ forParty, always. wouldChange, provisional and assumed never reach a

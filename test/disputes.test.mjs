@@ -154,3 +154,30 @@ test("an exchange with no stored authorisation refuses rather than pretending", 
   assert.equal(h.relayed.length, 0);
   assert.equal(h.record().disputeRaisedBy, null, "a raise that never happened was attributed to somebody");
 });
+
+test("a raise already recorded by the watchdog is not relabelled as the buyer's", async () => {
+  // The mirror of the watchdog's own guard, and the same defect in the other
+  // direction: confirm() cannot tell whose dispute it is looking at, so a
+  // watchdog raise that landed first answers the buyer's confirm too. Whoever
+  // recorded a completed raise owns the attribution; this one arrived second.
+  const h = harness();
+  await raiseFor({
+    exchangeId: "241",
+    by: "buyer",
+    exchanges: h.exchanges,
+    authorisations: h.authorisations,
+    relay: async (stored) => {
+      h.exchanges.update("241", { disputeRaisedAt: 1, disputeRaisedBy: "watchdog" });
+      return { transactionHash: "0xabc", stored };
+    },
+    confirm: h.confirm,
+  });
+  const record = h.record();
+  assert.equal(record.disputeRaisedBy, "watchdog", "the watchdog's raise was relabelled as the buyer's");
+  assert.equal(record.disputeRaisedAt, 1, "and its time was overwritten");
+  assert.equal(
+    record.authorisations.includes("raiseDispute"),
+    false,
+    "the spent signature is still listed as protecting the exchange"
+  );
+});
