@@ -22,7 +22,8 @@
     "confirm": "node scripts/confirm-receipt.mjs",
     "replay": "node scripts/replay.mjs",
     "raise": "node scripts/raise-dispute.mjs",
-    "mediate": "node scripts/mediate.mjs"
+    "mediate": "node scripts/mediate.mjs",
+    "buyer": "node src/buyer-server.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.122.0",
