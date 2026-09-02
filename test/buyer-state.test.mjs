@@ -120,6 +120,11 @@ test("a split with no price says the fraction rather than inventing an amount", 
   assert.equal(line.text, "20% has come back to you.");
 });
 
+test("a split with a non-integer refund formats to two decimal places", () => {
+  const line = moneyLine(record({ finalisedAt: 1, outcome: "split", buyerPercent: 33 }), { priceText: "150", currency: "£" });
+  assert.equal(line.text, "£49.50 has come back to you.");
+});
+
 test("fill replaces every placeholder and leaves nothing unresolved", () => {
   assert.equal(fill("paid on {date}", { date: "19 September" }), "paid on 19 September");
   assert.throws(() => fill("paid on {date}", {}), /date/);
