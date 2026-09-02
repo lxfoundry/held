@@ -154,6 +154,20 @@ buttons:
 Both clauses are true and each answers one button, in the order the buttons appear. `{date}` is
 `redeemedAt + disputePeriodMs` off the record — never a written-in date.
 
+Two rules follow from that being **the only warning they get**, and they are the same rule twice:
+*a date on this line is a claim, and a wrong one costs the buyer their money.*
+
+- **Both terms, or no line.** The record permits a null `redeemedAt`, and `null + a period` is not
+  an error — it is an instant in January 1970. Where either term is not a number the notice is
+  **omitted**, never rendered from what is there. The buttons are unaffected: the deadline is
+  unstated, not the purchase.
+- **Read against the buyer's calendar**, which is a fixed zone and not the machine's. These are
+  instants; a date is what a person reads off a calendar. Formatted in UTC, a deadline half an hour
+  past midnight shows as the day before — telling the buyer to act a day early — and formatted in
+  the serving machine's own zone, the date on screen would depend on which laptop drew it.
+  A carrier's scan in the parcel timeline is the **one exception and reads its own clock**: it
+  carries the offset it was stamped with, and shows the time printed on the scan.
+
 Why this line is required rather than decorative:
 
 - **Completing is optional.** If the buyer does nothing the dispute period elapses and the seller is

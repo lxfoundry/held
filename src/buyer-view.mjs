@@ -84,21 +84,54 @@ function offersCompletion(tracking, record) {
 }
 
 function deadlineNotice(record) {
+  // ⚠️ Both terms, not their sum. src/exchanges.mjs permits a null redeemedAt
+  // and does not validate what it reads, and `null + 17 days` is not an error
+  // — it is a number, an instant in January 1970, which this line then stated
+  // as confidently as a real one: "The seller is paid on 18 January."
+  //
+  // ⭐ This is the only warning the buyer gets, and inaction pays the seller,
+  // so a wrong date here is the one copy error on this screen with a cost.
+  // Saying nothing leaves the deadline unstated; saying a date the record does
+  // not hold tells them to act by a day that means nothing.
+  if (!Number.isFinite(record.redeemedAt) || !Number.isFinite(record.disputePeriodMs)) return null;
   return fill(BUYER_STRINGS.deadline_notice, { date: formatDate(record.redeemedAt + record.disputePeriodMs) });
 }
 
-const MONTHS = ["January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December"];
+// ⚠️ A fixed zone, and deliberately neither UTC nor the machine's own. These
+// are instants, and a date is what a person reads off a calendar: formatting in
+// UTC showed a deadline stamped at 00:30 on the 19th as the 18th to a buyer
+// whose clock already said the 19th, which is a day early on a line telling
+// them when to act. Formatting in the machine's zone would instead make the
+// date on screen depend on which laptop served the page, and the test that
+// pins it depend on where it runs.
+const ZONE = "Europe/London";
 
-// The one date formatter, so two dates on the same screen — the deadline
-// notice and a settled exchange's finalised date — can never disagree in
-// style.
+// One style, stated once, so no two dates on the same screen can disagree in
+// how they are written. What the two formatters below differ in is only which
+// clock the instant is read against, which is the whole distinction.
+const DATE_STYLE = { day: "numeric", month: "long" };
+
+// An instant with no zone attached, read against the buyer's calendar: the
+// deadline they are told to act by, and the day a settled exchange finalised.
+const DATE = new Intl.DateTimeFormat("en-GB", { timeZone: ZONE, ...DATE_STYLE });
+
 function formatDate(ms) {
-  const at = new Date(ms);
-  return `${at.getUTCDate()} ${MONTHS[at.getUTCMonth()]}`;
+  return DATE.format(new Date(ms));
 }
 
-// The clock half of the same formatter, in the same style.
+// ⚠️ A wall-clock reading, and separate from formatDate for one reason:
+// timelineFrom below shifts a carrier's stamp by its own offset precisely so
+// that reading it as UTC gives the time printed on the scan. Passing that
+// through the buyer's zone would add the offset a second time — moving a 23:30
+// scan onto the next day while formatClock, which does read it as UTC, went on
+// saying 23:30. It pairs with formatClock and with nothing else.
+const STAMP_DATE = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", ...DATE_STYLE });
+
+function formatStampDate(ms) {
+  return STAMP_DATE.format(new Date(ms));
+}
+
+// The clock half of the stamp formatter, in the same style.
 function formatClock(ms) {
   const at = new Date(ms);
   return `${String(at.getUTCHours()).padStart(2, "0")}:${String(at.getUTCMinutes()).padStart(2, "0")}`;
@@ -130,7 +163,7 @@ function timelineFrom(events) {
     .map((e) => {
       const stamped = e.at + offsetOf(e.stamp);
       return fill(BUYER_STRINGS.timeline_entry, {
-        date: formatDate(stamped),
+        date: formatStampDate(stamped),
         clock: formatClock(stamped),
         text: e.text,
       });
