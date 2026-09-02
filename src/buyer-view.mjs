@@ -18,7 +18,16 @@ export const ACTIONS = Object.freeze({
   DECLINE: "decline",
 });
 
-export function viewFor({ record, tracking, caseRecord = null, listing, events = [], photos = 0, allowConfirm = false }) {
+// ⭐ allowConfirm and allowPhoto are the two operator settings this model
+// takes. Both work the same way: the operator's choice becomes an action that
+// is enabled, or one that is drawn disabled with a neutral reason. Neither is
+// ever a reason for the client to draw something other than what it is told —
+// an action the model emits is an action the screen shows.
+//
+// ⚠️ allowPhoto says *whether* a photograph is on offer, never which one. The
+// branch of the damage case is an operator's decision and has no place in what
+// the buyer is shown.
+export function viewFor({ record, tracking, caseRecord = null, listing, events = [], allowConfirm = false, allowPhoto = false }) {
   const priceText = listing?.priceText ?? null;
   const currency = listing?.currency ?? "£";
 
@@ -46,8 +55,8 @@ export function viewFor({ record, tracking, caseRecord = null, listing, events =
     // "what happens now", and the two are never on screen together.
     timeline: disputed || settled ? null : timelineFrom(events),
     notice: offersCompletion(tracking, record) ? deadlineNotice(record) : null,
-    mediation: disputed && !settled ? mediationFrom(latest, priceText, currency, photos) : null,
-    actions: actionsFor({ tracking, record, latest, allowConfirm }),
+    mediation: disputed && !settled ? mediationFrom(latest, priceText, currency) : null,
+    actions: actionsFor({ tracking, record, latest, allowConfirm, allowPhoto }),
     // Copy for something the stores cannot know happened: the buyer pressed a
     // button and the request did not go through. It is carried on every model
     // so that public/held.js can say so without composing a sentence of its
@@ -123,12 +132,14 @@ function lastRound(caseRecord) {
   return rounds.length ? rounds[rounds.length - 1]?.result ?? null : null;
 }
 
-function mediationFrom(latest, priceText, currency, photos) {
-  if (!latest) return { question: null, photos, proposal: null };
+// ⚠️ Nothing here that the screen does not draw. A count of the photographs
+// already attached used to ride along in this block, read by nothing — and a
+// field nothing reads is a claim nobody checks.
+function mediationFrom(latest, priceText, currency) {
+  if (!latest) return { question: null, proposal: null };
   if (latest.status === "proposal") {
     return {
       question: null,
-      photos,
       proposal: {
         refund: priceText == null
           ? `${latest.buyerPercent}%`
@@ -138,11 +149,11 @@ function mediationFrom(latest, priceText, currency, photos) {
     };
   }
   const ask = (latest.requests ?? []).find((r) => r.to === "buyer");
-  return { question: ask?.asks ?? null, photos, proposal: null };
+  return { question: ask?.asks ?? null, proposal: null };
 }
 
 
-function actionsFor({ tracking, record, latest, allowConfirm }) {
+function actionsFor({ tracking, record, latest, allowConfirm, allowPhoto }) {
   if (record.finalisedAt != null || record.escalatedAt != null) return [];
 
   if (offersCompletion(tracking, record)) {
@@ -178,7 +189,12 @@ function actionsFor({ tracking, record, latest, allowConfirm }) {
   }
 
   const asked = (latest.requests ?? []).some((r) => r.to === "buyer");
-  return asked
-    ? [{ id: ACTIONS.PHOTO, label: BUYER_STRINGS.add_photo, primary: true, enabled: true, reason: null }]
-    : [];
+  if (!asked) return [];
+  // Drawn whether or not a photograph is on offer, exactly as completing is:
+  // the mediator asked the buyer a question, and a question with no visible
+  // way to answer it is worse than a disabled control that says why.
+  return [
+    { id: ACTIONS.PHOTO, label: BUYER_STRINGS.add_photo, primary: true,
+      enabled: allowPhoto, reason: allowPhoto ? null : BUYER_STRINGS.photo_unavailable },
+  ];
 }

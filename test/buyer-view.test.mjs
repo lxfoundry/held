@@ -21,7 +21,7 @@ const tracking = (over = {}) => ({
 
 const view = (over = {}) =>
   viewFor({ record: record(), tracking: tracking(), caseRecord: null, listing,
-            events: [], photos: 0, allowConfirm: true, ...over });
+            events: [], allowConfirm: true, allowPhoto: true, ...over });
 
 test("ACTIONS.PHOTO is the literal route segment the client posts to", () => {
   // Pinned as a literal, not compared against itself: every other test refers
@@ -102,6 +102,34 @@ test("an evidence request becomes the question and the photo action", () => {
   });
   assert.equal(v.mediation.question, "Can you photograph the outer shipping carton?");
   assert.equal(v.actions.find((a) => a.id === ACTIONS.PHOTO).enabled, true);
+});
+
+// I-5: the client used to drop the photo action whenever the operator had not
+// named a photograph, while the model said it was enabled — so a buyer reading
+// "Can you photograph the outer shipping carton?" saw a question and no way to
+// answer it. Whether a photograph is on offer is an input to the model, like
+// the operator's arming of completion, and the client draws what it is told.
+test("with no photograph on offer the action is still drawn, disabled and truthful", () => {
+  const v = view({
+    tracking: tracking({ current: "delivered", delivered: true }),
+    record: record({ disputeRaisedAt: 1, disputeRaisedBy: "buyer" }),
+    caseRecord: { exchangeId: "241", rounds: [{ result: { status: "needs_evidence",
+      requests: [{ to: "buyer", asks: "Can you photograph the outer shipping carton?" }] } }] },
+    allowPhoto: false,
+  });
+  const photo = v.actions.find((a) => a.id === ACTIONS.PHOTO);
+  assert.equal(photo.enabled, false);
+  assert.equal(photo.reason, "Adding a photo isn't available right now");
+});
+
+test("mediation carries nothing the screen does not draw", () => {
+  const v = view({
+    tracking: tracking({ current: "delivered", delivered: true }),
+    record: record({ disputeRaisedAt: 1, disputeRaisedBy: "buyer" }),
+    caseRecord: { exchangeId: "241", rounds: [{ result: { status: "needs_evidence",
+      requests: [{ to: "buyer", asks: "Can you photograph the outer shipping carton?" }] } }] },
+  });
+  assert.deepEqual(Object.keys(v.mediation).sort(), ["proposal", "question"]);
 });
 
 test("a proposal renders its amount and its reasoning, and settling is not yet available", () => {

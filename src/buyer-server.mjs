@@ -94,7 +94,13 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
   // server ran — which buries every other diagnostic in this file.
   const missingListings = new Set();
 
-  function modelFor(id) {
+  // ⭐ allowPhoto, not a photo id: whether a photograph is on offer is
+  // something the buyer's model states, which photograph it is never is. The
+  // page carries the operator's choice in its own URL and forwards it here, so
+  // the model — not public/held.js — decides whether that action is drawn
+  // enabled. The id itself travels in the photos request body, and stops
+  // there.
+  function modelFor(id, allowPhoto = false) {
     const record = exchanges.get(id);
     if (!record) return null;
     const input = listings.read(id);
@@ -118,8 +124,8 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
       // be a second place that decision could be made.
       listing: input.listing,
       events: snapshot?.events ?? [],
-      photos: input.photos?.length ?? 0,
       allowConfirm,
+      allowPhoto,
     });
   }
 
@@ -153,7 +159,7 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
     });
   }
 
-  async function run(res, id, name, req) {
+  async function run(res, id, name, req, allowPhoto) {
     if (name === "complete" && !allowConfirm) {
       // ⚠️ The buyer's screen never learns an environment variable's name —
       // src/buyer-view.mjs renders a neutral reason instead. This is the one
@@ -219,7 +225,7 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
     // poll reconciles from the stores, as everywhere else here.
     let model = null;
     try {
-      model = modelFor(id);
+      model = modelFor(id, allowPhoto);
     } catch (err) {
       console.error(`${name} succeeded for exchange ${id}, but the view could not be rendered: ${err.message}`);
     }
@@ -250,6 +256,8 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
       // reason it is not parsed there.
       const url = new URL(req.url, "http://localhost");
       const path = url.pathname;
+      // Whether a photograph is on offer, never which one — see modelFor().
+      const allowPhoto = Boolean(url.searchParams.get("photo"));
 
       const asset = STATIC[path];
       if (req.method === "GET" && asset) {
@@ -270,7 +278,7 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
         // handles — and .filter(Boolean) drops it from what is sent.
         const models = records.map((r) => {
           try {
-            return modelFor(r.exchangeId);
+            return modelFor(r.exchangeId, allowPhoto);
           } catch (err) {
             console.error(`could not render exchange ${r.exchangeId}: ${err.message}`);
             return null;
@@ -287,7 +295,7 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
         // catch as a 500, and the client blanked the screen on it.
         let model = null;
         try {
-          model = modelFor(one[1]);
+          model = modelFor(one[1], allowPhoto);
         } catch (err) {
           console.error(`could not render exchange ${one[1]}: ${err.message}`);
         }
@@ -302,7 +310,7 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
         // (err.message throwing on null/undefined) and a send() that fails
         // once headers are already out — reject silently, the client's
         // 2-second poll never gets a response, and sockets accumulate.
-        return run(res, action[1], action[2], req).catch(() =>
+        return run(res, action[1], action[2], req, allowPhoto).catch(() =>
           send(res, 500, { error: "the request could not be handled" })
         );
       }

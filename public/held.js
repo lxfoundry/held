@@ -4,12 +4,17 @@
 
 const params = new URLSearchParams(location.search);
 const id = params.get("purchase");
-// ⚠️ Ruling on the photo action: the model never says which photograph to
-// attach — that choice is which branch of the damage case to show, and that
-// is an operator decision, not a buyer one. It is read from the URL instead,
-// and never invented: absent, the photo action is simply not drawn (see
-// actionsBlock below).
+// ⚠️ Which photograph the evidence action attaches — the branch of the damage
+// case to show, an operator's decision and not a buyer's. The model never says
+// which one, and this file never invents one.
+//
+// It is forwarded to the API rather than acted on here: the model decides
+// whether that action is on offer, this file draws whatever the model says.
+// Deciding it here meant an action the model reported as enabled was silently
+// dropped, leaving a buyer reading the mediator's question with no way to
+// answer it.
 const photoId = params.get("photo");
+const photoQuery = photoId ? `?photo=${encodeURIComponent(photoId)}` : "";
 
 const app = document.getElementById("app");
 
@@ -44,7 +49,7 @@ async function tick() {
   // is at most two seconds away and reconciles from the stores.
   let res;
   try {
-    res = await fetch(id ? `/api/purchases/${id}` : "/api/purchases");
+    res = await fetch(id ? `/api/purchases/${id}${photoQuery}` : `/api/purchases${photoQuery}`);
   } catch (err) {
     console.error(`could not reach the server: ${err.message}`);
     return;
@@ -79,7 +84,7 @@ async function act(action) {
       : { method: "POST" };
   let res;
   try {
-    res = await fetch(`/api/purchases/${id}/${action}`, opts);
+    res = await fetch(`/api/purchases/${id}/${action}${photoQuery}`, opts);
   } catch (err) {
     // The guard must not leak on a network failure either — that would
     // disable this button for good, which is worse than the pre-guard
@@ -237,10 +242,6 @@ function mediationBlock(mediation) {
 function actionsBlock(actions) {
   const wrap = document.createElement("div");
   for (const a of actions) {
-    // ⚠️ Ruling: omitting the control is a rendering decision, not composed
-    // copy. Without a photo id in the URL, this action is simply not drawn.
-    if (a.id === "photos" && !photoId) continue;
-
     const btn = document.createElement("button");
     if (!a.primary) btn.className = "secondary";
     btn.textContent = a.label;

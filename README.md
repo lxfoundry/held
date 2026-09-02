@@ -270,8 +270,9 @@ URL:
 - `?purchase=<exchangeId>` — show one purchase. Omitted, the page shows the list of every purchase
   the view can render.
 - `?photo=<photoId>` — which photograph the "add evidence" action attaches, once a dispute is open
-  and evidence has been requested. Absent, that action is simply not drawn — the view never guesses
-  which photograph to send on the buyer's behalf.
+  and evidence has been requested. The view never guesses which photograph to send on the buyer's
+  behalf: absent, the action is drawn disabled and says so, rather than vanishing from a screen
+  that is asking the buyer for a photograph.
 
 Environment variables, read once at startup:
 

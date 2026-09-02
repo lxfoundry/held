@@ -328,6 +328,34 @@ test("a store that cannot be rendered after a successful action is not reported 
   assert.equal(res.status, 200, "the action happened; only the view of it failed");
 });
 
+// I-5: which photograph to attach is the operator's choice and stays out of
+// the buyer's model — but *whether* one is on offer is now an input to it,
+// read from the request, so the client no longer decides on its own whether to
+// draw an action the model says is enabled.
+const inMediation = {
+  exchanges: { get: () => ({ ...record, disputeRaisedAt: 1, disputeRaisedBy: "buyer" }), all: () => [record] },
+  cases: {
+    read: () => ({ exchangeId: "241", rounds: [{ result: { status: "needs_evidence",
+      requests: [{ to: "buyer", asks: "Can you photograph the outer shipping carton?" }] } }] }),
+  },
+};
+
+test("with no photograph named, the photo action is drawn disabled", async () => {
+  const res = await call(app(inMediation), "GET", "/api/purchases/241");
+  const photo = JSON.parse(res.body).actions.find((a) => a.id === "photos");
+  assert.equal(photo.enabled, false);
+  assert.ok(photo.reason, "a disabled action must say why");
+});
+
+test("a photograph named in the request enables the action, and never names it in the model", async () => {
+  const res = await call(app(inMediation), "GET", "/api/purchases/241?photo=carton-crushed");
+  const model = JSON.parse(res.body);
+  const photo = model.actions.find((a) => a.id === "photos");
+  assert.equal(photo.enabled, true);
+  assert.equal(photo.reason, null);
+  assert.ok(!JSON.stringify(model).includes("carton-crushed"), "the branch choice is not the buyer's");
+});
+
 // --- who is calling ----------------------------------------------------------
 // ⚠️ Loopback is not a security boundary: this port is reachable from every
 // page in this buyer's browser, and a POST with no body and no custom header

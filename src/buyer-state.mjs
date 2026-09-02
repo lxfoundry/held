@@ -41,6 +41,7 @@ export const BUYER_STRINGS = {
   decline_unavailable: "Declining isn't available yet",
   settle_unavailable: "Settling isn't available yet",
   complete_unavailable: "This isn't available right now",
+  photo_unavailable: "Adding a photo isn't available right now",
 
   // The one line on the screen that no store made: a request that did not go
   // through. The server's own error body is an operator diagnostic and never
