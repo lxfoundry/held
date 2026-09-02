@@ -20,7 +20,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ROOT } from "../src/env.mjs";
 import { applyPhotos } from "../src/case-fixture.mjs";
-import { createCaseInputStore, UnknownPhotoError } from "../src/case-input.mjs";
+import { createCaseInputStore, ForeignCaseError, UnknownPhotoError } from "../src/case-input.mjs";
 
 const committed = readFileSync(join(ROOT, "fixtures/case/241.json"), "utf8");
 // The same case before anything has been added to it. Built with the pure
@@ -198,4 +198,95 @@ test("a successful add leaves no temporary file behind", () => {
   createCaseInputStore(dir).addPhoto("241", "carton");
   const leftover = readdirSync(dir).filter((f) => f.endsWith(".tmp"));
   assert.deepEqual(leftover, []);
+});
+
+// --- which case these photographs belong to ---------------------------------
+// ⭐ applyPhotos sets the whole list of photographs at once, so on a case
+// standing anywhere but the round this move opens from it does not add — it
+// overwrites. These cover the refusal, and they assert on the file rather than
+// on the throw, because the failure being guarded against is a write that
+// reported success.
+
+test("a case holding another case's evidence is refused, and keeps it", () => {
+  const dir = freshDir(
+    JSON.stringify(
+      {
+        exchangeId: "241",
+        photos: [{ id: "bench", path: "fixtures/case/photos/bench.jpg", media_type: "image/jpeg" }],
+        listing: { title: "Teak garden bench", priceText: "75" },
+      },
+      null,
+      2,
+    ),
+  );
+  const store = createCaseInputStore(dir);
+  const before = readFileSync(join(dir, "241.json"), "utf8");
+
+  assert.throws(() => store.addPhoto("241", "carton"), ForeignCaseError);
+  assert.equal(readFileSync(join(dir, "241.json"), "utf8"), before);
+  // The one thing that must not have happened: its own evidence replaced by
+  // the demonstrated case's.
+  assert.deepEqual(store.read("241").photos.map((p) => p.path), ["fixtures/case/photos/bench.jpg"]);
+});
+
+// A case with no photographs at all is the shape docs/specs/buyer-view.md §6.1
+// describes for an exchange with no case — and eleven of the committed listing
+// fixtures have it. It is refused for the same reason: the opening round *is*
+// the first photograph, so there is no move that reaches it, and writing one
+// would attach the demonstrated case's evidence to a purchase that is not it.
+test("a case that has never held a photograph is refused rather than seeded", () => {
+  const dir = freshDir(JSON.stringify({ exchangeId: "241", listing: { title: "Teak garden bench" } }, null, 2));
+  const store = createCaseInputStore(dir);
+
+  // ⚠️ A named class, not a plain Error: src/buyer-server.mjs answers this 404
+  // — "there is nothing here to add" — where the plain Error it used to raise
+  // fell through to a 500 claiming this component was broken. The route's own
+  // test pins the status; this pins the class the route matches on.
+  assert.throws(() => store.addPhoto("241", "carton"), ForeignCaseError);
+  assert.equal(store.read("241").photos, undefined);
+});
+
+test("the case the demonstration stands at is still moved, and a repeat is still a no-op", () => {
+  const dir = freshDir();
+  const store = createCaseInputStore(dir);
+
+  // From the opening round: the move the buyer's button makes.
+  assert.deepEqual(
+    store.addPhoto("241", "carton").photos.map((p) => p.path),
+    ["fixtures/case/photos/inner.jpg", "fixtures/case/photos/carton.jpg"],
+  );
+  const after = readFileSync(join(dir, "241.json"), "utf8");
+
+  // Standing at the round being applied: allowed, and byte for byte untouched.
+  store.addPhoto("241", "carton");
+  assert.equal(readFileSync(join(dir, "241.json"), "utf8"), after);
+});
+
+// ⚠️ The guard asks whether the case stands at *a* round, never at a
+// particular one — so it must not have narrowed the branch swap §8.3 requires.
+// The two tests above ("the other branch fills the taken slot", "attaching the
+// branch already in the slot changes nothing") are the ones that would fail if
+// it had; this states the reason they still pass.
+test("a case standing at any known round is still this case", () => {
+  const dir = freshDir();
+  const store = createCaseInputStore(dir);
+  store.addPhoto("241", "carton");
+
+  assert.deepEqual(
+    store.addPhoto("241", "carton-crushed").photos.map((p) => p.path),
+    ["fixtures/case/photos/inner.jpg", "fixtures/case/photos/carton-crushed.jpg"],
+  );
+});
+
+// Either branch reaches from the opening round, which is what the ?photo= URL
+// selects on the demonstrated case.
+test("either branch is reachable from the opening round", () => {
+  for (const [name, expected] of [
+    ["carton", "fixtures/case/photos/carton.jpg"],
+    ["carton-crushed", "fixtures/case/photos/carton-crushed.jpg"],
+  ]) {
+    const store = createCaseInputStore(freshDir());
+    const photos = store.addPhoto("241", name).photos;
+    assert.deepEqual(photos.map((p) => p.path), ["fixtures/case/photos/inner.jpg", expected]);
+  }
 });

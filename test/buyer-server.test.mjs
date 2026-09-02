@@ -331,6 +331,39 @@ test("end to end: a purchase with no case input is refused rather than given one
   assert.equal(caseInput.read("241"), null);
 });
 
+// ⚠️ Never a 200, and for a reason worse than the one above: the photographs
+// belong to one demonstrated case, and applying a round sets the whole list, so
+// on any other case a 200 here would mean that case's evidence had been
+// replaced by this one's — silently, in the component the mediator reads to
+// decide what a buyer is owed.
+test("end to end: another case's evidence is not overwritten, and the answer is 404", async () => {
+  const foreign = JSON.stringify(
+    {
+      exchangeId: "241",
+      photos: [{ id: "bench", path: "fixtures/case/photos/bench.jpg", media_type: "image/jpeg" }],
+      listing: { title: "Teak garden bench", priceText: "75" },
+    },
+    null,
+    2,
+  );
+  const { handler, written } = realPhotosApp(foreign);
+  const res = await addPhoto(handler, "carton");
+  // 404 and not 500: there is no photograph here to add, which is an absence.
+  assert.equal(res.status, 404);
+  assert.equal(written(), foreign, "the case must keep its own photographs");
+});
+
+// A case with no photographs at all — the shape docs/specs/buyer-view.md §6.1
+// describes, and the one eleven committed listing fixtures have. It used to
+// raise a plain Error and answer 500, reporting a broken component.
+test("end to end: a case that has never held a photograph is 404, not 500", async () => {
+  const bare = JSON.stringify({ exchangeId: "241", listing: { title: "Teak garden bench" } }, null, 2);
+  const { handler, written } = realPhotosApp(bare);
+  const res = await addPhoto(handler, "carton");
+  assert.equal(res.status, 404);
+  assert.equal(written(), bare);
+});
+
 // ⚠️ A photo id names a round, and the rounds are a table of acceptable strings
 // held in source — no path is built from the id and nothing is read off disk to
 // decide, so a traversal attempt is refused for naming no round at all.

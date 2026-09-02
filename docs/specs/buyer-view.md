@@ -360,6 +360,20 @@ carries the listing and the message thread, so a file written by this action alo
 photographs and neither of those — a purchase the view omits for having no listing (§6.1). An absent
 case is refused rather than invented.
 
+⚠️ **Nor is a case that stands at no round.** Applying a round sets the whole list of photographs at
+once, so on a case holding evidence these rounds do not describe, this action would not add a
+photograph — it would **replace that case's evidence with another case's**, silently, in the file
+the mediator reads to decide what a buyer is owed. The precondition is therefore that the case
+already stands at one of the rounds, and it is checked before anything is written:
+
+- **any** round, not the one the move opens from, because the branches are alternatives within one
+  slot — a case at the crushed branch takes the intact carton and becomes a case at the intact one;
+- a case holding **no** photographs stands at no round, so it is refused too: the opening round *is*
+  the first photograph, and no move reaches it. §6.1's "`photos` and `messages` are simply absent"
+  describes exactly this shape, and a purchase in it has nothing here to add;
+- the refusal is an **absence — `404`** — and not a `500`. There is no photograph here to attach;
+  nothing is broken.
+
 ### 8.4 · What the buyer has sent is on the screen
 
 **A press that changes nothing on screen has not confirmed anything.** Adding a photograph writes to
