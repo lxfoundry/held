@@ -132,6 +132,16 @@ function lastRound(caseRecord) {
   return rounds.length ? rounds[rounds.length - 1]?.result ?? null : null;
 }
 
+// ⭐ The split currently on the buyer's screen, or null when the case is not at
+// a proposal. Exported because the settle route has to submit exactly the
+// number the screen showed, and working that out a second time — from the same
+// case record, by the same rule, in another module — is how the figure a buyer
+// accepted and the figure that settled would come to differ.
+export function proposedPercent(caseRecord) {
+  const latest = lastRound(caseRecord);
+  return latest?.status === "proposal" ? latest.buyerPercent : null;
+}
+
 // ⚠️ Nothing here that the screen does not draw. A count of the photographs
 // already attached used to ride along in this block, read by nothing — and a
 // field nothing reads is a claim nobody checks.
