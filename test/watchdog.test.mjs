@@ -33,6 +33,7 @@ function harness({
   relayImpl,
   confirmImpl,
   trackersImpl,
+  wrapExchanges,
 } = {}) {
   const exchanges = createExchangeStore(mkdtempSync(join(tmpdir(), "held-wd-x-")));
   const authorisations = createAuthorisationStore(mkdtempSync(join(tmpdir(), "held-wd-a-")));
@@ -62,7 +63,9 @@ function harness({
   const relayed = [];
   const trackers = trackersImpl ?? { read: () => ({ state: { current: "in_transit", delivered: false, everAvailableForPickup: false } }) };
   const watchdog = createWatchdog({
-    exchanges,
+    // Wrapped only where a test needs the store to move under the sweep — the
+    // real one otherwise, and the real one is always what a test reads back.
+    exchanges: wrapExchanges ? wrapExchanges(exchanges) : exchanges,
     trackers,
     authorisations,
     readChainState: async () => ({
@@ -228,6 +231,39 @@ test("the authorisation is discarded only once the action is confirmed", async (
   assert.equal(authorisations.has("42", "raiseDispute"), false);
 });
 
+// ── The recorded time is the protocol's, not this process's ───────────────────
+
+test("a confirmed raise is recorded at the time the protocol gives, not this process's clock", async () => {
+  // ⚠️ The gap is not latency. `seed --adopt` rewrites a record with the
+  // dispute fields null, so a dispute the chain has held for a day reads back
+  // here as none — and a raise stamped with now() would date it to now, putting
+  // the escalation deadline a day past the one the protocol enforces.
+  const { watchdog, exchanges } = harness({ confirmImpl: async () => 3 * DAY });
+  await watchdog.sweep();
+  assert.equal(exchanges.get("42").disputeRaisedAt, 3 * DAY, "the sweep recorded its own clock instead");
+});
+
+test("a confirmed escalation is recorded at the time the protocol gives", async () => {
+  const { watchdog, exchanges } = harness({
+    chainOver: { disputeRaisedAt: 0, disputeRaisedBy: "buyer" },
+    confirmImpl: async () => 6 * DAY,
+  });
+  const [result] = await watchdog.sweep();
+  assert.equal(result.action, ACTIONS.ESCALATE);
+  assert.equal(exchanges.get("42").escalatedAt, 6 * DAY);
+});
+
+test("a confirm that reports no time still records one", async () => {
+  // ⚠️ Green before this change as well as after, and here for what it stops:
+  // passing the read-back through unchecked. A confirm() that answers `true` —
+  // as every one in this file did until now — would reach the store as a
+  // non-number, and the store rejects that *after* the relay has landed, which
+  // leaves the dispute on chain with nothing on disk saying so.
+  const { watchdog, exchanges } = harness({ confirmImpl: async () => true });
+  await watchdog.sweep();
+  assert.equal(exchanges.get("42").disputeRaisedAt, PERIOD - HOUR, "the sweep's own clock, as before");
+});
+
 // ── One bad file must not disarm the whole sweep ──────────────────────────────
 
 test("a corrupt record is reported and the others are still swept", async () => {
@@ -334,6 +370,35 @@ test("F1 · a dispute nobody here attempted is not claimed by the watchdog", asy
   assert.equal(parcelLine({ tracking: null, record }).text, BUYER_STRINGS.sorting_out);
 });
 
+test("F1 · a buyer's own raise landing mid-sweep is not reattributed to the watchdog", async () => {
+  // The third way into the same field, and the one the buyer-initiated raise
+  // opens. scripts/raise-dispute.mjs is a separate process, so the in-process
+  // sweeping guard says nothing about it — and sweep() reads every record once
+  // at the top of a pass, where an earlier exchange can sit in confirm() for
+  // minutes. By the time step() reaches this record its snapshot can predate a
+  // raise the buyer made themselves, and claiming that one tells them the
+  // system acted when in fact they did.
+  const { watchdog, exchanges } = harness({
+    recordOver: { disputeRaiseAttemptedAt: 1 },
+    chainOver: { disputeRaisedAt: 1, disputeTimeoutAt: 90 * DAY },
+    wrapExchanges: (store) => ({
+      ...store,
+      all() {
+        const snapshot = store.all();
+        // The buyer's separate process, landing after the snapshot was taken.
+        store.update("42", { disputeRaisedBy: "buyer", disputeRaisedAt: 1 });
+        return snapshot;
+      },
+    }),
+  });
+
+  await watchdog.sweep();
+
+  const record = exchanges.get("42");
+  assert.equal(record.disputeRaisedBy, "buyer", "the buyer's own raise was claimed by the watchdog");
+  assert.equal(parcelLine({ tracking: null, record }).text, BUYER_STRINGS.sorting_out);
+});
+
 test("F2 · a raise authorisation is discarded once a dispute exists on chain", async () => {
   // "Discarded once spent" was implemented as "discarded once this process
   // relayed it". A raise that landed without being confirmed left the signature
@@ -393,4 +458,26 @@ test("F3 · a finalised exchange reports no authorisations", async () => {
   await watchdog.sweep();
 
   assert.deepEqual(exchanges.get("42").authorisations, []);
+});
+
+test("a buyer raise landing during the relay is not claimed by the watchdog", async () => {
+  // ⚠️ The sibling of the snapshot test above, and the half it did not close.
+  // Reading the record fresh fixed the *guard*; the write after confirm() was
+  // still unconditional. confirm() asks whether a dispute exists, not whose it
+  // is, so the buyer's dispute answers the watchdog's question too — and the
+  // watchdog then signed its own name to a raise the buyer made themselves.
+  let store = null;
+  const h = harness({
+    relayImpl: async (stored) => {
+      // The buyer's separate process, landing while this relay is in flight —
+      // after this step read the record, decided, and committed to relaying.
+      store.update("42", { disputeRaisedAt: 1, disputeRaisedBy: "buyer" });
+      return { transactionHash: "0xabc", stored };
+    },
+  });
+  store = h.exchanges;
+  await h.watchdog.sweep();
+  const record = h.exchanges.get("42");
+  assert.equal(record.disputeRaisedBy, "buyer", "the buyer's own raise was claimed by the watchdog");
+  assert.equal(record.disputeRaisedAt, 1, "and its time was overwritten with the watchdog's");
 });

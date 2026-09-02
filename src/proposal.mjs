@@ -41,7 +41,10 @@ function carriesNothing(value) {
 // `assumed` names the branch a concluded question fell back on, and a branch
 // carries its split — so it is the same leak as `wouldChange` wearing a
 // different name. It belongs to the record, not to what either party is shown.
-const INTERNAL = ["wouldChange", "provisional", "assumed"];
+// bundleHash joins them for a different reason: it is the case file's own
+// bookkeeping, the key that says which evidence a round ran against, and a party
+// reading a settlement has no use for a digest.
+const INTERNAL = ["wouldChange", "provisional", "assumed", "bundleHash"];
 
 const fail = (reason) => ({ ok: false, reason });
 
@@ -83,6 +86,15 @@ export function checkProposal(result, bundle) {
     for (const req of result.requests) {
       const branches = req.wouldChange ?? [];
       if (branches.length < 2) return fail("a request must name at least two branches");
+      // ⚠️ Bounded here because the schema cannot: the API rejects
+      // minimum/maximum on a number. A branch split is a percentage of the same
+      // pot as every other number in this object, and it reaches the case
+      // record through the concluded path's `assumed`, so it is checked where
+      // every other percentage is.
+      for (const branch of branches) {
+        const bad = checkPercent(branch.split, "a request branch's split");
+        if (bad) return fail(bad);
+      }
       // A request whose branches agree is a question whose answer changes
       // nothing, and it spends a party's effort to look diligent.
       if (new Set(branches.map((b) => b.split)).size === 1) {

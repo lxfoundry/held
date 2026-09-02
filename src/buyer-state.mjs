@@ -5,8 +5,14 @@
 // their parcel. They change for different reasons and at different moments, so
 // they are computed separately and never interleaved.
 //
-// This is the only module holding user-visible copy, which is what lets a
-// single test assert the vocabulary rule over the entire surface.
+// This is the only module holding user-visible copy that this system writes,
+// which is what lets a single test assert the vocabulary rule over all of it.
+//
+// ⚠️ It is not the whole user-visible surface any more. A mediator's reasoning,
+// its findings and its requests are shown to both parties and are written by a
+// model, so no test here can reach them. The rule is put to it in
+// fixtures/case/system.md instead, and it holds only as well as the model
+// follows it — read a proposal before it goes in front of anyone.
 
 export const BUYER_STRINGS = {
   held: "Your money is held. The seller can't touch it.",

@@ -21,6 +21,17 @@ export class UnusableModelResponse extends Error {
 
 // The schema is the action space. There is no field for a remedy that is not a
 // percentage, so a wider remedy is unrepresentable rather than rejected.
+//
+// ⚠️ Structure only: types, enums, required, additionalProperties. Every value
+// constraint is absent on purpose. The structured-output validator rejects them
+// with a 400 — `minimum`/`maximum` on a number, `minItems` above 1 on an array —
+// so a schema carrying one is not a stricter schema, it is one that never
+// reaches the model at all and fails every case on its first call.
+//
+// ⭐ The division is the point: this says what shape an answer has, and
+// checkProposal says what values are allowed. Both bounds that used to live
+// here — the 0-100 range on every percentage, and a request naming at least two
+// branches — are enforced there, on the answer.
 export const FORMAT = {
   type: "json_schema",
   schema: {
@@ -29,7 +40,7 @@ export const FORMAT = {
     required: ["status", "findings"],
     properties: {
       status: { type: "string", enum: ["needs_evidence", "proposal", "cannot_settle"] },
-      buyerPercent: { type: "number", minimum: 0, maximum: 100 },
+      buyerPercent: { type: "number" },
       reasoning: { type: "string" },
       findings: {
         type: "array",
@@ -48,7 +59,7 @@ export const FORMAT = {
         additionalProperties: false,
         required: ["buyerPercent", "reasoning"],
         properties: {
-          buyerPercent: { type: "number", minimum: 0, maximum: 100 },
+          buyerPercent: { type: "number" },
           reasoning: { type: "string" },
         },
       },
@@ -64,7 +75,6 @@ export const FORMAT = {
             whoCanProvide: { type: "string", enum: ["buyer", "seller"] },
             wouldChange: {
               type: "array",
-              minItems: 2,
               items: {
                 type: "object",
                 additionalProperties: false,
@@ -72,7 +82,7 @@ export const FORMAT = {
                 properties: {
                   answer: { type: "string" },
                   implies: { type: "string" },
-                  split: { type: "number", minimum: 0, maximum: 100 },
+                  split: { type: "number" },
                 },
               },
             },

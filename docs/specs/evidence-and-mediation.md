@@ -441,6 +441,12 @@ and when it lapses **the seller is paid** — the same fact the watchdog exists 
 already escalates at `ESCALATE_LEAD` before that instant, computed from `disputeRaisedAt` and
 `resolutionPeriodMs` on the exchange record.
 
+`disputeRaisedAt` is **the date the protocol recorded**, read back off the chain when the raise is
+confirmed — never the moment the recording process noticed. The protocol enforces the resolution
+period against its own clock, so a deadline computed from a local one is a deadline for a different
+instant, and the gap is unbounded: a record rewritten while a dispute is already open reads as
+undisputed, and would otherwise date a day-old dispute to now.
+
 Mediation therefore runs inside a window that is already guarded, and its deadline is that escalation
 instant — read from the record, never a timer the mediator starts. Each round checks the time
 remaining. A round that cannot plausibly be answered before the deadline does not ask: it proposes on
