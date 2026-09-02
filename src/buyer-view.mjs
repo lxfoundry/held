@@ -48,6 +48,11 @@ export function viewFor({ record, tracking, caseRecord = null, listing, events =
     notice: offersCompletion(tracking, record) ? deadlineNotice(record) : null,
     mediation: disputed && !settled ? mediationFrom(latest, priceText, currency, photos) : null,
     actions: actionsFor({ tracking, record, latest, allowConfirm }),
+    // Copy for something the stores cannot know happened: the buyer pressed a
+    // button and the request did not go through. It is carried on every model
+    // so that public/held.js can say so without composing a sentence of its
+    // own — the vocabulary rule holds because this module emits every string.
+    actionFailed: BUYER_STRINGS.action_failed,
     caseFile: record.escalatedAt != null,
   };
 }

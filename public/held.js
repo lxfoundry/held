@@ -29,12 +29,46 @@ let lastModel = null;
 // used to suppress the poll itself.
 const inFlight = new Set();
 
+// ⚠️ Whether the buyer's last attempt at an action failed. Not a fact any
+// store holds — no record says "a request did not arrive" — so it lives here
+// and nowhere else, and it survives the poll: cleared when they try again,
+// never by the next tick, or the only feedback they get would be wiped within
+// two seconds of appearing.
+let actionFailed = false;
+
 async function tick() {
-  const res = await fetch(id ? `/api/purchases/${id}` : "/api/purchases");
-  render(await res.json());
+  // ⚠️ A poll that cannot be answered leaves the last good screen standing.
+  // Without this, one unreachable request threw out of tick() unhandled and
+  // (with render() clearing first) the page went blank — a screen saying
+  // nothing about a purchase, which is a claim no store made. The next poll
+  // is at most two seconds away and reconciles from the stores.
+  let res;
+  try {
+    res = await fetch(id ? `/api/purchases/${id}` : "/api/purchases");
+  } catch (err) {
+    console.error(`could not reach the server: ${err.message}`);
+    return;
+  }
+  if (!res.ok) {
+    // The body is an operator diagnostic, never buyer copy — logged here, and
+    // never rendered. See setFailed() for the one sentence the buyer is told.
+    console.error(`could not load: HTTP ${res.status} ${await res.text()}`);
+    return;
+  }
+  let model;
+  try {
+    model = await res.json();
+  } catch (err) {
+    console.error(`the response was not readable: ${err.message}`);
+    return;
+  }
+  render(model);
 }
 
 async function act(action) {
+  // A fresh attempt clears the previous one's failure — the buyer is told
+  // about the attempt they just made, not the one before it.
+  actionFailed = false;
   // ⚠️ Optimistic rendering is forbidden. The button reports that it is
   // working; what replaces it comes from the next read of the store.
   inFlight.add(action);
@@ -52,6 +86,11 @@ async function act(action) {
     // behaviour. Cleared, then the original rejection still propagates
     // exactly as it did before this fix (deferred: nothing here catches it).
     inFlight.delete(action);
+    // The same silence, one failure earlier: a request that never left is no
+    // more visible to the buyer than one that came back refused, so they are
+    // told here too. The rejection itself still propagates exactly as it did.
+    actionFailed = true;
+    if (lastModel) render(lastModel);
     throw err;
   }
   // Cleared before either recovery path renders, so that render already
@@ -67,18 +106,21 @@ tick();
 // --- rendering ---------------------------------------------------------
 
 function render(model) {
-  app.textContent = "";
-
   // A response naming an error — an unknown purchase, a store that could not
   // be read — carries an operator diagnostic, never buyer copy. It is logged
   // for whoever runs this and shown as nothing, rather than as an invented
   // "unavailable" sentence this model never emitted.
+  //
+  // ⚠️ Checked before the screen is cleared, and lastModel is kept. Clearing
+  // first blanked the page for at least one poll on any transient failure, and
+  // permanently on one that persisted; dropping lastModel then took the
+  // fallback in setFailed() with it.
   if (model && typeof model === "object" && "error" in model) {
     console.error(`could not load purchase: ${model.error}`);
-    lastModel = null;
     return;
   }
 
+  app.textContent = "";
   lastModel = model;
   if (Array.isArray(model)) return renderList(model);
   return renderPurchase(model);
@@ -127,6 +169,13 @@ function renderPurchase(model) {
   if (model.notice) app.appendChild(textEl("div", model.notice, "notice"));
 
   app.appendChild(actionsBlock(model.actions));
+
+  // Beneath the buttons, because it is about the button that was just pressed.
+  // The copy is the model's (BUYER_STRINGS.action_failed) — this file composes
+  // no sentence of its own, and the server's error body never reaches the DOM.
+  if (actionFailed && model.actionFailed) {
+    app.appendChild(textEl("div", model.actionFailed, "reason"));
+  }
 }
 
 function moneyBlock(money) {
@@ -235,6 +284,12 @@ function setFailed(action, body) {
     console.error(`action "${action}" failure body was not JSON: ${err.message}`);
   }
   console.error(`action "${action}" did not go through: ${detail}`);
+
+  // ⚠️ The buyer is told, in the model's words. Silence here is what a buyer
+  // pressing "Something's wrong" on a purchase this tool cannot act on used to
+  // get: the button simply became pressable again, and that button is the only
+  // protection a buyer with a damaged parcel has.
+  actionFailed = true;
 
   // Nothing here is rendered as a result the store hasn't confirmed. The
   // screen falls back to the last state a real read actually produced; the

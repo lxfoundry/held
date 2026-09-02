@@ -171,6 +171,15 @@ test("held renders no second line", () => {
   assert.equal(view().money.meta, null);
 });
 
+// I-1: an action that fails leaves the buyer with nothing on screen — and
+// "Something's wrong" is the only protection a buyer with a damaged parcel
+// has, so silence there is the worst place for it. public/held.js cannot
+// compose that sentence itself (no string reaches the screen except through
+// BUYER_STRINGS), so the model carries it.
+test("the model carries the copy for an action that did not go through", () => {
+  assert.equal(view().actionFailed, "That didn't go through. Have another go.");
+});
+
 test("⭐ every string the view emits — labels and reasons alike — comes from BUYER_STRINGS", async () => {
   const { BUYER_STRINGS } = await import("../src/buyer-state.mjs");
   // Placeholders are filled by the time they reach here, so compare on the
@@ -194,7 +203,8 @@ test("⭐ every string the view emits — labels and reasons alike — comes fro
   ];
 
   for (const v of states) {
-    const texts = [v.money.text, v.money.meta, v.parcel.text, v.notice, ...v.actions.flatMap((a) => [a.label, a.reason])];
+    const texts = [v.money.text, v.money.meta, v.parcel.text, v.notice, v.actionFailed,
+      ...v.actions.flatMap((a) => [a.label, a.reason])];
     for (const text of texts) {
       if (text == null) continue;
       assert.ok(known.some((k) => text.includes(k.trim())), `"${text}" is not built from BUYER_STRINGS`);

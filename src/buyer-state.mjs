@@ -37,6 +37,11 @@ export const BUYER_STRINGS = {
   settle_unavailable: "Settling isn't available yet",
   complete_unavailable: "This isn't available right now",
 
+  // The one line on the screen that no store made: a request that did not go
+  // through. The server's own error body is an operator diagnostic and never
+  // reaches the buyer, so this is what they are told instead.
+  action_failed: "That didn't go through. Have another go.",
+
   on_its_way: "On its way",
   needs_you: "The courier couldn't deliver it — it needs you",
   waiting_for_collection: "It's waiting for you to collect",
