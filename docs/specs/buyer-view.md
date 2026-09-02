@@ -55,14 +55,27 @@ returned and the rest paid — the buyer keeps the item and is compensated for i
 is then told *"Your money has been returned."* while holding the item and most of the price gone to
 the seller. **That is false, and it is false in the one case mutual resolution exists to produce.**
 
-Two changes:
+Two changes, and they are to **different things** — the record's `outcome` and the line the buyer
+reads are not the same set, and conflating them is how `held` looks like it is being removed:
 
-1. `outcome` becomes `"paid" | "returned" | "split"`. A percentage of 0 is `paid`, 100 is `returned`,
-   anything between is `split`.
-2. The record carries `buyerPercent` alongside `outcome`, so the view can state the amount rather
+1. **`moneyLine()` gains a fourth line: `held | paid | returned | split`.** `held` is untouched and
+   remains correct until the exchange finalises — whether that is by completion or by a resolved
+   dispute.
+2. **`outcome` gains a third value: `"paid" | "returned" | "split"`.** It stays `null` until the
+   exchange finalises, because — as `scripts/watchdog.mjs` already puts it — an outcome is what
+   happened to the money, and until then nothing has. `held` is therefore not an outcome and never
+   was; it is the line rendered in the *absence* of one.
+3. The record carries `buyerPercent` alongside `outcome`, so the view can state the amount rather
    than the fraction.
 
-`scripts/watchdog.mjs` writes both; `moneyLine()` reads them.
+| `finalisedAt` | `outcome` | `buyerPercent` | Line |
+|---|---|---|---|
+| `null` | `null` | — | `held` |
+| set | `"paid"` | `0` | `paid` |
+| set | `"returned"` | `100` | `returned` |
+| set | `"split"` | `0 < p < 100` | `split` |
+
+`scripts/watchdog.mjs` and `src/completion.mjs` write the record columns; `moneyLine()` reads them.
 
 ## 4 · Every state
 
@@ -72,7 +85,7 @@ Copy is exact. `{…}` is data resolved at render time.
 
 | `outcome` | Copy |
 |---|---|
-| unfinalised | **Your money is held.** · The seller can't touch it. |
+| `null` — not finalised | **Your money is held.** · The seller can't touch it. |
 | `paid` | **Seller has been paid.** · {price} · {date} |
 | `returned` | **Your money has been returned.** · {price} · back to you |
 | `split` | **{refund} has come back to you.** · The seller has been paid the rest. |
