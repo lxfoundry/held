@@ -26,7 +26,7 @@
 
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { applyPhotos, roundAdding } from "./case-fixture.mjs";
+import { addablePhotos, applyPhotos, roundAdding } from "./case-fixture.mjs";
 
 // Thrown for a photo id that names no photograph a case can be moved to hold —
 // including a traversal attempt, which is simply another id that is not on the
@@ -77,15 +77,28 @@ export function createCaseInputStore(dir) {
     renameSync(temp, target);
   }
 
-  function addPhoto(exchangeId, photoId) {
+  // ⭐ photoId is optional, and its absence is the ordinary case rather than an
+  // error. The buyer presses one button; which photograph that attaches is a
+  // lookup in the rounds table, not a question to put to them — the two
+  // photographs of the outer carton are one evidence slot holding two versions
+  // of the same fact, and which version is true is what the mediator reads the
+  // evidence to find out. An operator naming one selects the branch; nobody
+  // naming one takes the first the rounds declare.
+  //
+  // ⚠️ Not "the photograph this case does not yet hold". Applying the round a
+  // case already stands in reproduces its text exactly, so a repeat is a
+  // no-op that still answers 200 — which is a simpler and more honest
+  // behaviour than a second rule about what is left to add.
+  function addPhoto(exchangeId, photoId = null) {
+    const wanted = photoId ?? addablePhotos()[0] ?? null;
     // ⚠️ The allowlist, and it is neither a pattern nor a directory listing. A
     // photo id names a round, and the rounds are a table of two acceptable
     // strings held in source — so a traversal attempt is refused for naming no
     // round, with no path ever built from it and nothing read off disk to
     // decide. See isSafeTrackerId in src/store.mjs for the same reasoning
     // applied to a tracker id before it becomes a filename.
-    const round = roundAdding(photoId);
-    if (!round) throw new UnknownPhotoError(photoId);
+    const round = roundAdding(wanted);
+    if (!round) throw new UnknownPhotoError(wanted);
 
     const target = pathFor(exchangeId);
     let before;

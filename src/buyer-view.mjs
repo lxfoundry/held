@@ -18,16 +18,19 @@ export const ACTIONS = Object.freeze({
   DECLINE: "decline",
 });
 
-// ⭐ allowConfirm and allowPhoto are the two operator settings this model
-// takes. Both work the same way: the operator's choice becomes an action that
-// is enabled, or one that is drawn disabled with a neutral reason. Neither is
-// ever a reason for the client to draw something other than what it is told —
-// an action the model emits is an action the screen shows.
+// ⭐ allowConfirm is the one operator setting this model takes. The operator's
+// choice becomes an action that is enabled, or one drawn disabled with a
+// neutral reason — never a reason for the client to draw something other than
+// what it is told. An action the model emits is an action the screen shows.
 //
-// ⚠️ allowPhoto says *whether* a photograph is on offer, never which one. The
-// branch of the damage case is an operator's decision and has no place in what
-// the buyer is shown.
-export function viewFor({ record, tracking, caseRecord = null, listing, events = [], allowConfirm = false, allowPhoto = false }) {
+// ⚠️ There used to be a second, allowPhoto, and adding a photograph was drawn
+// disabled unless the operator had named one in the page's URL. It gated the
+// wrong thing. *Which* photograph is attached is a branch of the demonstration
+// and remains the operator's — but it is a lookup in the rounds table, not a
+// question, so it has no bearing on whether the buyer may answer the
+// mediator at all. A permanently disabled primary control under a question
+// asking for evidence was an interface that could not be used as drawn.
+export function viewFor({ record, tracking, caseRecord = null, listing, photos = [], events = [], allowConfirm = false }) {
   const priceText = listing?.priceText ?? null;
   const currency = listing?.currency ?? "£";
 
@@ -56,7 +59,17 @@ export function viewFor({ record, tracking, caseRecord = null, listing, events =
     timeline: disputed || settled ? null : timelineFrom(events),
     notice: offersCompletion(tracking, record) ? deadlineNotice(record) : null,
     mediation: disputed && !settled ? mediationFrom(latest, priceText, currency) : null,
-    actions: actionsFor({ tracking, record, latest, allowConfirm, allowPhoto }),
+    // ⭐ What the buyer has already sent, on the same window as the mediation
+    // block: before a case exists there is no evidence, and after settlement
+    // the money line is the answer rather than the file.
+    //
+    // ⚠️ It exists because "Add a photo" wrote a file nothing on screen drew,
+    // so the one action a buyer can actually complete confirmed nothing. The
+    // count used to ride along inside `mediation`, read by nothing, and was
+    // removed for that reason — the field was never the mistake, not drawing
+    // it was.
+    evidence: disputed && !settled ? evidenceFrom(photos, record.exchangeId) : null,
+    actions: actionsFor({ tracking, record, latest, allowConfirm }),
     // Copy for something the stores cannot know happened: the buyer pressed a
     // button and the request did not go through. It is carried on every model
     // so that public/held.js can say so without composing a sentence of its
@@ -127,9 +140,37 @@ function timelineFrom(events) {
   return entries.length ? entries : null;
 }
 
+// ⚠️ The round *is* the mediator's answer — there is no `result` wrapper to
+// unpick. scripts/mediate.mjs writes `{ ...result, bundleHash }` into the
+// rounds array, src/mediator.mjs reads `rounds.at(-1).bundleHash` off the same
+// level, and src/clerk.mjs reads `round.requests` off it too. Reaching for
+// `.result` here read `undefined` on every record this system actually writes,
+// so the mediation block and its actions were unreachable from real data while
+// the tests, which built the wrapper themselves, stayed green.
 function lastRound(caseRecord) {
   const rounds = caseRecord?.rounds ?? [];
-  return rounds.length ? rounds[rounds.length - 1]?.result ?? null : null;
+  return rounds.length ? rounds[rounds.length - 1] ?? null : null;
+}
+
+// ⭐ Every field here is drawn, and the ids are deliberately not among them.
+// A photograph is located by its position in the case's own list, so nothing a
+// caller sends is ever resolved against the filesystem — src/buyer-server.mjs
+// bounds the index and then checks the file it resolved to is inside the
+// photographs directory, and a name in this model would be a third way in.
+//
+// ⚠️ One alt line for all of them, from BUYER_STRINGS like every other string
+// this module emits. What each photograph shows is something only the buyer
+// knows, and a description invented here would be a claim no store made.
+function evidenceFrom(photos, exchangeId) {
+  const held = Array.isArray(photos) ? photos : [];
+  if (held.length === 0) return null;
+  return {
+    summary: held.length === 1
+      ? BUYER_STRINGS.photo_added_one
+      : fill(BUYER_STRINGS.photos_added, { count: held.length }),
+    alt: BUYER_STRINGS.photo_alt,
+    photos: held.map((_, index) => `/api/purchases/${exchangeId}/photos/${index}`),
+  };
 }
 
 // ⚠️ Nothing here that the screen does not draw. A count of the photographs
@@ -148,12 +189,15 @@ function mediationFrom(latest, priceText, currency) {
       },
     };
   }
-  const ask = (latest.requests ?? []).find((r) => r.to === "buyer");
-  return { question: ask?.asks ?? null, proposal: null };
+  // ⚠️ whoCanProvide and what, which is what the model's schema names these —
+  // see src/proposal.mjs and any recording under fixtures/case/recordings. `to`
+  // and `asks` were fields nothing has ever written.
+  const ask = (latest.requests ?? []).find((r) => r.whoCanProvide === "buyer");
+  return { question: ask?.what ?? null, proposal: null };
 }
 
 
-function actionsFor({ tracking, record, latest, allowConfirm, allowPhoto }) {
+function actionsFor({ tracking, record, latest, allowConfirm }) {
   if (record.finalisedAt != null || record.escalatedAt != null) return [];
 
   if (offersCompletion(tracking, record)) {
@@ -188,13 +232,16 @@ function actionsFor({ tracking, record, latest, allowConfirm, allowPhoto }) {
     ];
   }
 
-  const asked = (latest.requests ?? []).some((r) => r.to === "buyer");
+  // whoCanProvide, for the reason mediationFrom above gives: a request names
+  // the party who can answer it, and this must ask the same question of the
+  // same field, or a question is drawn with no way to answer it.
+  const asked = (latest.requests ?? []).some((r) => r.whoCanProvide === "buyer");
   if (!asked) return [];
-  // Drawn whether or not a photograph is on offer, exactly as completing is:
-  // the mediator asked the buyer a question, and a question with no visible
-  // way to answer it is worse than a disabled control that says why.
+  // ⭐ Enabled, always. The mediator asked the buyer a question and this is the
+  // control that answers it; nothing about the operator's configuration bears
+  // on whether they may. Which photograph it attaches is settled behind this,
+  // in src/case-input.mjs, from the rounds table.
   return [
-    { id: ACTIONS.PHOTO, label: BUYER_STRINGS.add_photo, primary: true,
-      enabled: allowPhoto, reason: allowPhoto ? null : BUYER_STRINGS.photo_unavailable },
+    { id: ACTIONS.PHOTO, label: BUYER_STRINGS.add_photo, primary: true, enabled: true, reason: null },
   ];
 }

@@ -239,10 +239,32 @@ One purchase fills the screen as a single column of about 440px, centred. The re
 carries the wordmark and nothing else. There is no navigation, no routing and no back button: the
 list of purchases is the same page with no purchase selected.
 
+A row in that list draws the item, then **the parcel line** — where the parcel has got to — and then
+the money line **only when it is not `held`**. "Your money is held" is true of every purchase that
+has not finished, so drawing it on every row said the same sentence repeatedly and distinguished
+nothing; where the parcel has got to is the one thing that differs between two open purchases. The
+money line is still what separates the endings, since a finished purchase reads "It arrived" whether
+the seller was paid, the money came back or they split it — so it is drawn beneath, and only then.
+
 The tracking timeline appears **only** while the parcel is in transit or delivered-and-undisputed.
 Once a dispute exists, the mediator's question or proposal takes that space. Both are never on
 screen together — they answer different questions and the second is the one that matters once it
 exists.
+
+The mediator writes in paragraphs, and they are drawn as paragraphs: the reasoning is split on the
+blank lines the text already carries, one element each. Set as the text of a single element every
+break collapses into a space, and two thousand characters of argument arrive as one unbroken
+block — the whole of it, correctly, and unreadable.
+
+That reasoning is also **capped in height and scrolls in place**. Left to run, a four-paragraph
+argument is well over a thousand pixels in a 440px column, which puts the amount it explains and the
+two buttons that answer it on different screens. Nothing is hidden or summarised — rung 3 is a
+proposal *with its reasoning shown*, and the whole of it is in the box.
+
+Beneath whichever of those is drawn, and above the buttons, sits the **evidence block**: a count of
+the photographs the buyer has already sent, and those photographs as thumbnails. It is present on
+exactly the same window as the mediation block — a dispute exists and nothing has settled — and only
+while the case holds at least one photograph. See §8.4.
 
 ## 8 · Actions
 
@@ -250,6 +272,7 @@ exists.
 |---|---|---|---|
 | `GET` | `/api/purchases` | — | — |
 | `GET` | `/api/purchases/:id` | — | — |
+| `GET` | `/api/purchases/:id/photos/:position` | — | see §8.4 |
 | `POST` | `/api/purchases/:id/complete` | `completion.mjs` | `BUYER_UI_ALLOW_CONFIRM` |
 | `POST` | `/api/purchases/:id/raise` | `disputes.mjs` | — |
 | `POST` | `/api/purchases/:id/photos` | `case-input.mjs` | see §8.3 |
@@ -305,7 +328,19 @@ There is therefore **one writer and one format**: `src/case-input.mjs` makes the
 That function moves a case between **rounds** — a round being the photographs a case is defined to
 hold at that point in the mediation, named in source rather than read off the file. The request
 body's `photo` id names the round a case reaches once that photograph has been added, and applying
-the round sets the whole list of photographs at once. Three properties follow from that alone,
+the round sets the whole list of photographs at once.
+
+⭐ **The `photo` id is optional, and its absence is the ordinary case.** The buyer presses one
+button; which photograph that attaches is a lookup in the rounds table, taking the first one they
+declare. An operator naming one selects the other branch instead. The action is therefore **never
+drawn disabled** — it was, unless a photograph appeared in the page's URL, which made a primary
+control under a question asking for evidence unusable as drawn.
+
+⚠️ **The buyer is never asked which one.** The two photographs of the outer carton are one evidence
+slot holding two versions of the same fact, and which version is true is precisely what the mediator
+reads the evidence to establish — the branches settle at different numbers. A control asking the
+buyer to state whether their carton was crushed would be asking them to label their own evidence,
+and to pick their own settlement while doing it. Three properties follow from that alone,
 rather than from separate checks:
 
 - the id is matched against the rounds held in source, so one that names no round is refused with
@@ -324,6 +359,39 @@ written, so text that would not parse is never the text on disk.
 carries the listing and the message thread, so a file written by this action alone would hold
 photographs and neither of those — a purchase the view omits for having no listing (§6.1). An absent
 case is refused rather than invented.
+
+### 8.4 · What the buyer has sent is on the screen
+
+**A press that changes nothing on screen has not confirmed anything.** Adding a photograph writes to
+the case file, and for a time nothing in the model represented that file, so the one action a buyer
+can complete unaided answered `200` and returned a model identical to the one already rendered. The
+count had previously ridden along inside the mediation block, read by nothing, and was removed on the
+rule that a field nothing reads is a claim nobody checks — the field was never the mistake, not
+drawing it was.
+
+The model therefore carries an `evidence` block of exactly three drawn fields:
+
+| Field | What it is |
+|---|---|
+| `summary` | `1 photo added`, or `{count} photos added` — two strings in `BUYER_STRINGS`, never one with a count spliced into a noun |
+| `alt` | one description for every thumbnail: *A photo you added*. What a photograph shows is something only the buyer knows |
+| `photos` | one URL per photograph, addressing it **by its position in that case's own list** |
+
+⚠️ **A position, never a name and never a path.** The model carries no filename, so the only thing a
+caller controls is an integer. Four things stand between a request and a file read, in order: the
+route matches digits only; the index must fall inside the list that case actually holds; the path it
+resolves to must sit directly inside the photographs directory; and its extension must be on a
+three-entry allow-list. The first three make traversal *unrepresentable* rather than rejected — there
+is no caller-supplied string anywhere in the path that gets resolved — and the fourth is what stops a
+hand-edited case file naming something that is not an image. Anything that fails answers `404`: a
+photograph that is not there is an absence, not a broken component.
+
+⚠️ **The URL names a position, and the file at a position changes** the moment a photograph is
+added — so it must never be cached outright. The response carries an entity tag derived from the
+file's own size and modification time and `cache-control: no-cache`, which gives the browser a `304`
+while nothing has moved and a fresh body the instant something does. Without it the two-second poll
+refetches every thumbnail; with a plain long cache, a press would leave the previous photograph on
+screen.
 
 ## 9 · The settlement seam
 

@@ -36,12 +36,22 @@ export const BUYER_STRINGS = {
   arrived_all_good: "It arrived, all good",
   something_wrong: "Something's wrong",
   add_photo: "Add a photo",
+
+  // ⭐ What the buyer has already sent, so that pressing "Add a photo" changes
+  // something on screen. Two keys rather than one with a {count}: "1 photos
+  // added" is the kind of wrong that reads as a broken product, and choosing
+  // the noun outside this module would be public/held.js composing copy.
+  photo_added_one: "1 photo added",
+  photos_added: "{count} photos added",
+  // Every thumbnail carries the same description, because that is all this
+  // system truthfully knows about any of them: the buyer sent it. Naming the
+  // subject would mean inventing one.
+  photo_alt: "A photo you added",
   accept_proposal: "That works for me",
   decline_proposal: "No thanks",
   decline_unavailable: "Declining isn't available yet",
   settle_unavailable: "Settling isn't available yet",
   complete_unavailable: "This isn't available right now",
-  photo_unavailable: "Adding a photo isn't available right now",
 
   // The one line on the screen that no store made: a request that did not go
   // through. The server's own error body is an operator diagnostic and never
