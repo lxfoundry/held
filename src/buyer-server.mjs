@@ -209,8 +209,10 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
       // ⚠️ 501, never 200. The client renders what it is told, and telling it
       // an unsettled proposal settled is the one failure to prevent.
       if (err instanceof NotBuiltError) return send(res, 501, { error: err.message });
-      // A photo id that names nothing under fixtures/case/photos/ — including
-      // a traversal attempt, which is simply another id that is not there.
+      // A photo id that names no photograph a case can be moved to hold —
+      // including a traversal attempt, which is simply another id that is not
+      // on the list. src/case-input.mjs decides that against a table in source,
+      // so nothing is read off disk to answer it.
       if (err instanceof UnknownPhotoError) return send(res, 404, { error: err.message });
       console.error(err);
       return send(res, 500, { error: err.message });
@@ -364,7 +366,8 @@ if (isEntryPoint) {
 
   // The listing block, photos and messages live in fixtures/case/<id>.json —
   // the same file scripts/mediate.mjs reads for the same exchange, and the
-  // same file the "Add a photo" action appends to. Absence is not an error:
+  // same file the "Add a photo" action rewrites the photographs of. Absence is
+  // not an error:
   // modelFor() already treats a missing listing as "omit this purchase, log
   // why", per spec §11.
   const caseInput = createCaseInputStore(join(ROOT, "fixtures/case"));

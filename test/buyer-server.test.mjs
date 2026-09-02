@@ -5,11 +5,13 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp } from "../src/buyer-server.mjs";
 import { createCaseInputStore, UnknownPhotoError } from "../src/case-input.mjs";
+import { applyPhotos } from "../src/case-fixture.mjs";
+import { ROOT } from "../src/env.mjs";
 
 const listing = { title: "Four retired sets", priceText: "200", currency: "£" };
 
@@ -198,77 +200,104 @@ test("an unknown photo id raised by the action answers 404, not 500", async () =
 });
 
 // End to end: the real store wired exactly as the entry point wires it, not a
-// fake action — this is what proves the route is reachable, not just each
-// piece in isolation. `seed`, when given, is written as <dir>/<id>.json before
-// the store is created — a pre-existing case input, the same as a real one.
-function realPhotosApp({ seed } = {}) {
+// fake action — this is what proves the route is reachable, not just each piece
+// in isolation.
+//
+// ⚠️ The temporary directory is seeded with case text, never with a re-serialised
+// object, and fixtures/case/ itself is never written to. The store's write is a
+// replacement over one region of that text, so a seed with tidied formatting
+// would exercise a shape no real case input has.
+const committed = readFileSync(join(ROOT, "fixtures/case/241.json"), "utf8");
+const opening = applyPhotos(committed, 1);
+// The same case with its outer-carton slot already filled by the other branch.
+// src/case-fixture.mjs's PHOTOS table gives `carton` and `carton-crushed` the
+// same id — "carton" — because the outer carton is one evidence slot and the two
+// photographs are two branches competing for it. Two tests below turn on that.
+const otherBranch = applyPhotos(committed, "2b");
+
+function realPhotosApp(seed = opening) {
   const dir = mkdtempSync(join(tmpdir(), "held-buyer-photos-"));
-  mkdirSync(join(dir, "photos"), { recursive: true });
-  writeFileSync(join(dir, "photos", "carton.jpg"), "fixture");
-  writeFileSync(join(dir, "photos", "carton-crushed.jpg"), "fixture");
-  if (seed) writeFileSync(join(dir, `${seed.exchangeId}.json`), JSON.stringify(seed, null, 2));
+  writeFileSync(join(dir, "241.json"), seed);
   const caseInput = createCaseInputStore(dir);
   const handler = app({
     actions: { photos: ({ exchangeId, body }) => caseInput.addPhoto(exchangeId, body.photo) },
   });
-  return { handler, caseInput };
+  const written = () => readFileSync(join(dir, "241.json"), "utf8");
+  return { handler, caseInput, written };
 }
 
-// The 238-shaped record fixtures/case/238.json actually carries: id "carton"
-// already names carton-crushed.jpg, not a file called "carton". A test that
-// only ever starts from an empty photos array can never see the bug this
-// causes — see fix round 1, item 2.
-const seed238 = {
-  exchangeId: "238",
-  photos: [
-    { id: "inner", path: "fixtures/case/photos/inner.jpg", media_type: "image/jpeg" },
-    { id: "carton", path: "fixtures/case/photos/carton-crushed.jpg", media_type: "image/jpeg" },
-  ],
-};
+const addPhoto = (handler, photo, id = "241") =>
+  call(handler, "POST", `/api/purchases/${id}/photos`, JSON.stringify({ photo }));
 
-test("end to end: attaching a photograph appends it and answers 200", async () => {
+test("end to end: attaching a photograph writes it and answers 200", async () => {
   const { handler, caseInput } = realPhotosApp();
-  const res = await call(handler, "POST", "/api/purchases/241/photos", JSON.stringify({ photo: "carton" }));
+  const res = await addPhoto(handler, "carton");
   assert.equal(res.status, 200);
   assert.deepEqual(caseInput.read("241").photos, [
+    { id: "inner", path: "fixtures/case/photos/inner.jpg", media_type: "image/jpeg" },
     { id: "carton", path: "fixtures/case/photos/carton.jpg", media_type: "image/jpeg" },
   ]);
 });
 
-test("end to end: attaching the same photograph twice leaves one entry, still 200", async () => {
-  const { handler, caseInput } = realPhotosApp();
-  const first = await call(handler, "POST", "/api/purchases/241/photos", JSON.stringify({ photo: "carton" }));
-  const second = await call(handler, "POST", "/api/purchases/241/photos", JSON.stringify({ photo: "carton" }));
+// ⭐ The property the route must not break, asserted through the route itself.
+// The committed file is the form a case stands in once the photograph has been
+// added, so pressing this on the opening round has to reproduce it byte for byte
+// — not merely the same data. A route that re-serialised the record would move
+// every message and the listing too, and test/case-fixture.test.mjs's inverse
+// property would stop holding the first time a buyer used it.
+test("end to end: the route leaves the case in the committed form, byte for byte", async () => {
+  const { handler, written } = realPhotosApp();
+  const res = await addPhoto(handler, "carton");
+  assert.equal(res.status, 200);
+  assert.equal(written(), committed);
+  // The guarantees test/case-fixture.test.mjs makes about the committed file,
+  // made about the file the route produced.
+  assert.equal(applyPhotos(written(), 2), written());
+  assert.equal(applyPhotos(applyPhotos(written(), 1), 2), written());
+});
+
+test("end to end: attaching the same photograph twice leaves the file untouched, still 200", async () => {
+  const { handler, written } = realPhotosApp();
+  const first = await addPhoto(handler, "carton");
+  const after = written();
+  const second = await addPhoto(handler, "carton");
   assert.equal(first.status, 200);
   assert.equal(second.status, 200);
-  assert.equal(caseInput.read("241").photos.length, 1);
+  assert.equal(written(), after);
 });
 
-test("end to end: attaching a branch already present under a different id does not duplicate it", async () => {
-  const { handler, caseInput } = realPhotosApp({ seed: seed238 });
-  const res = await call(
-    handler, "POST", "/api/purchases/238/photos", JSON.stringify({ photo: "carton-crushed" }),
+// The rule a path-keyed dedup used to defend, now answered structurally and
+// confirmed by the PHOTOS table above: both branches carry the id "carton", so
+// treating that id as the identity of "already here" would block the intact
+// carton from ever reaching a case the crushed one had filled.
+test("end to end: the other branch fills the taken slot rather than being blocked by it", async () => {
+  const { handler, caseInput } = realPhotosApp(otherBranch);
+  const res = await addPhoto(handler, "carton");
+  assert.equal(res.status, 200);
+  assert.deepEqual(
+    caseInput.read("241").photos.map((p) => p.path),
+    ["fixtures/case/photos/inner.jpg", "fixtures/case/photos/carton.jpg"],
   );
-  assert.equal(res.status, 200);
-  assert.equal(caseInput.read("238").photos.length, 2);
 });
 
-test("end to end: a different branch photograph can still be attached even though its slot id is taken", async () => {
-  const { handler, caseInput } = realPhotosApp({ seed: seed238 });
-  const res = await call(handler, "POST", "/api/purchases/238/photos", JSON.stringify({ photo: "carton" }));
+// The other half of the same rule: one slot, so the branch already in it is not
+// joined by its opposite. A case holding both an intact and a crushed outer
+// carton is evidence that contradicts itself.
+test("end to end: attaching the branch already in the slot changes nothing", async () => {
+  const { handler, written } = realPhotosApp(otherBranch);
+  const res = await addPhoto(handler, "carton-crushed");
   assert.equal(res.status, 200);
-  const photos = caseInput.read("238").photos;
-  assert.equal(photos.length, 3);
-  assert.ok(photos.some((p) => p.path === "fixtures/case/photos/carton.jpg"));
+  assert.equal(written(), otherBranch);
 });
 
+// ⚠️ A photo id names a round, and the rounds are a table of acceptable strings
+// held in source — no path is built from the id and nothing is read off disk to
+// decide, so a traversal attempt is refused for naming no round at all.
 test("end to end: a traversal attempt is 404 and writes nothing", async () => {
-  const { handler, caseInput } = realPhotosApp();
-  const res = await call(
-    handler, "POST", "/api/purchases/241/photos", JSON.stringify({ photo: "../../etc/passwd" }),
-  );
+  const { handler, written } = realPhotosApp();
+  const res = await addPhoto(handler, "../../etc/passwd");
   assert.equal(res.status, 404);
-  assert.equal(caseInput.read("241"), null);
+  assert.equal(written(), opening);
 });
 
 // Fix round 1, item 4: run()'s promise is never awaited by handle(), so a
@@ -438,3 +467,4 @@ test("anything else is 404", async () => {
   assert.equal((await call(app(), "GET", "/api/nope")).status, 404);
   assert.equal((await call(app(), "POST", "/api/purchases/241/pay")).status, 404);
 });
+
