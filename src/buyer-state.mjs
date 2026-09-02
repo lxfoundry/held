@@ -27,6 +27,11 @@ export const BUYER_STRINGS = {
 
   deadline_notice: "The seller is paid on {date}. If something's wrong, say so before then.",
 
+  // One carrier scan, as one line. The join lives here for the same reason
+  // every other join does: it is punctuation the buyer reads, and this module
+  // is the only place a string the buyer reads may be written.
+  timeline_entry: "{date}, {clock} · {text}",
+
   from_a_stranger: "{price} · from a stranger",
   arrived_all_good: "It arrived, all good",
   something_wrong: "Something's wrong",
@@ -104,7 +109,12 @@ export function moneyLine(record, { priceText = null, currency = "£", finalised
 
 // Whole pounds where the split is whole, two places where it is not. A refund
 // of "£40.00" reads as a machine's output; "£40.5" reads as a bug.
-function formatAmount(value) {
+//
+// ⭐ Exported because src/buyer-view.mjs formats the mediator's proposed refund
+// with it. That figure and the settled one above are the same money on two
+// consecutive screens of one dispute, and a second copy of this function is a
+// second answer waiting to disagree with the first.
+export function formatAmount(value) {
   return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 

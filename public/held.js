@@ -207,12 +207,9 @@ function itemRow(item) {
 function timelineBlock(entries) {
   const ul = document.createElement("ul");
   ul.className = "timeline";
-  for (const e of entries) {
-    // Verbatim, not reformatted: `at` is left exactly as the model supplied
-    // it. Joined with the same "·" the model's own copy already uses to
-    // join two pieces of data (e.g. "{price} · {date}").
-    ul.appendChild(textEl("li", `${e.at} · ${e.text}`));
-  }
+  // One entry, one line, already composed: the stamp is formatted and joined
+  // to the carrier's description by the model, like every other string here.
+  for (const entry of entries) ul.appendChild(textEl("li", entry));
   return ul;
 }
 

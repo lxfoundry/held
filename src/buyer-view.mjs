@@ -8,7 +8,7 @@
 // It emits no copy of its own. Every string is resolved through BUYER_STRINGS,
 // which is what lets one test hold the vocabulary rule over the whole surface.
 
-import { BUYER_STRINGS, fill, moneyLine, parcelLine } from "./buyer-state.mjs";
+import { BUYER_STRINGS, fill, formatAmount, moneyLine, parcelLine } from "./buyer-state.mjs";
 
 export const ACTIONS = Object.freeze({
   COMPLETE: "complete",
@@ -76,14 +76,46 @@ function formatDate(ms) {
   return `${at.getUTCDate()} ${MONTHS[at.getUTCMonth()]}`;
 }
 
+// The clock half of the same formatter, in the same style.
+function formatClock(ms) {
+  const at = new Date(ms);
+  return `${String(at.getUTCHours()).padStart(2, "0")}:${String(at.getUTCMinutes()).padStart(2, "0")}`;
+}
+
+// ⚠️ The offset a carrier stamped its own scan with, added back before
+// formatting rather than normalised away. A parcel scanned at 09:13 in London
+// is what the buyer will compare this line against, and reading it as UTC
+// would show 08:13 — and would move a late-evening scan onto the day before.
+// Everything else this module formats is an instant with no zone attached.
+const OFFSET = /([+-])(\d{2}):?(\d{2})$/;
+function offsetOf(stamp) {
+  const parts = OFFSET.exec(stamp);
+  if (!parts) return 0;
+  return (parts[1] === "-" ? -1 : 1) * (Number(parts[2]) * 60 + Number(parts[3])) * 60_000;
+}
+
 // ⚠️ occurrenceDatetime, never datetime: the two disagree by the UTC offset and
-// the second is local time labelled as UTC.
+// the second is local time labelled as UTC. There is no fallback to it — a line
+// the buyer reads at the wrong time is worse than a line they do not read — and
+// an event carrying neither a usable stamp nor a description is not shown.
 function timelineFrom(events) {
   if (!events?.length) return null;
-  return events
-    .map((e) => ({ at: e.occurrenceDatetime ?? e.datetime ?? null, text: e.status ?? "" }))
-    .filter((e) => e.at != null && e.text !== "")
-    .sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+  const entries = events
+    .map((e) => ({ stamp: e.occurrenceDatetime ?? "", text: e.status ?? "" }))
+    .map((e) => ({ ...e, at: Date.parse(e.stamp) }))
+    .filter((e) => Number.isFinite(e.at) && e.text !== "")
+    .sort((a, b) => b.at - a.at)
+    .map((e) => {
+      const stamped = e.at + offsetOf(e.stamp);
+      return fill(BUYER_STRINGS.timeline_entry, {
+        date: formatDate(stamped),
+        clock: formatClock(stamped),
+        text: e.text,
+      });
+    });
+  // An empty list is not a timeline: nothing is drawn for it, exactly as
+  // nothing is drawn for a dispute that has produced no question yet.
+  return entries.length ? entries : null;
 }
 
 function lastRound(caseRecord) {
@@ -100,7 +132,7 @@ function mediationFrom(latest, priceText, currency, photos) {
       proposal: {
         refund: priceText == null
           ? `${latest.buyerPercent}%`
-          : `${currency}${amount((Number(priceText) * latest.buyerPercent) / 100)}`,
+          : `${currency}${formatAmount((Number(priceText) * latest.buyerPercent) / 100)}`,
         reasoning: latest.reasoning ?? "",
       },
     };
@@ -109,7 +141,6 @@ function mediationFrom(latest, priceText, currency, photos) {
   return { question: ask?.asks ?? null, photos, proposal: null };
 }
 
-const amount = (value) => (Number.isInteger(value) ? String(value) : value.toFixed(2));
 
 function actionsFor({ tracking, record, latest, allowConfirm }) {
   if (record.finalisedAt != null || record.escalatedAt != null) return [];

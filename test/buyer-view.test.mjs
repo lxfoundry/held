@@ -60,6 +60,28 @@ test("without the operator's arming, completing is present but disabled", () => 
   assert.equal(complete.reason, "This isn't available right now");
 });
 
+// I-4: a raw machine timestamp used to reach the screen verbatim —
+// "2026-08-30T09:13:31+01:00 · Out for Delivery", on the same screen as "The
+// seller is paid on 19 September". Every date the buyer reads goes through the
+// one formatter, and the join between the two halves is copy like any other.
+test("a timeline entry states its date the way every other date on the screen does", () => {
+  const v = view({ events: [
+    { occurrenceDatetime: "2026-08-29T18:02:00+01:00", status: "Shipment Received" },
+    { occurrenceDatetime: "2026-08-30T09:13:31+01:00", status: "Out for Delivery" },
+  ] });
+  assert.deepEqual(v.timeline, [
+    "30 August, 09:13 · Out for Delivery",
+    "29 August, 18:02 · Shipment Received",
+  ]);
+});
+
+test("an event carrying only the UTC-labelled local datetime is not shown at all", () => {
+  // `datetime` is local time labelled as UTC, so reading it would state a time
+  // that is wrong by the offset. Nothing here falls back to it.
+  const v = view({ events: [{ datetime: "2026-08-30T09:13:31.000Z", status: "Out for Delivery" }] });
+  assert.equal(v.timeline, null);
+});
+
 test("a raise the buyer made drops the timeline and opens the conversation", () => {
   const v = view({
     tracking: tracking({ current: "delivered", delivered: true }),
@@ -97,6 +119,23 @@ test("a proposal renders its amount and its reasoning, and settling is not yet a
   const decline = v.actions.find((a) => a.id === ACTIONS.DECLINE);
   assert.equal(decline.enabled, false);
   assert.equal(decline.reason, "Declining isn't available yet");
+});
+
+// Promoted minor 4: the proposal's amount and the settled refund are the two
+// money figures a buyer sees on consecutive screens of one dispute, and they
+// were formatted by two byte-identical copies of the same function. One
+// function now, so they cannot drift apart.
+test("a proposal's amount and the ending it settles to are formatted identically", () => {
+  const disputed = { disputeRaisedAt: 1, disputeRaisedBy: "buyer" };
+  const proposal = view({
+    tracking: tracking({ current: "delivered", delivered: true }),
+    record: record(disputed),
+    caseRecord: { exchangeId: "241", rounds: [{ result: { status: "proposal",
+      buyerPercent: 33.3, reasoning: "The carton is crushed." } }] },
+  });
+  const settled = view({ record: record({ finalisedAt: 1, outcome: "split", buyerPercent: 33.3 }) });
+  assert.equal(proposal.mediation.proposal.refund, "£66.60");
+  assert.equal(settled.money.text, "£66.60 has come back to you.");
 });
 
 test("a split ending renders amber and carries its one supporting line", () => {
