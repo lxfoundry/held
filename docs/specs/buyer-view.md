@@ -252,7 +252,7 @@ exists.
 | `GET` | `/api/purchases/:id` | — | — |
 | `POST` | `/api/purchases/:id/complete` | `completion.mjs` | `BUYER_UI_ALLOW_CONFIRM` |
 | `POST` | `/api/purchases/:id/raise` | `disputes.mjs` | — |
-| `POST` | `/api/purchases/:id/photos` | the case store | — |
+| `POST` | `/api/purchases/:id/photos` | `case-input.mjs` | see §8.3 |
 | `POST` | `/api/purchases/:id/settle` | `resolution.mjs` | see §9 |
 
 The client polls `GET /api/purchases/:id` every 2 seconds. Polling rather than server-sent events
@@ -290,6 +290,40 @@ So, before any route runs:
 Both answer `403` with an operator-facing body. The buyer's own page sends both headers correctly
 and nothing else can. This is the check that establishes *who is calling*; §8.1's is an operator
 arming the machine, and neither substitutes for the other.
+
+### 8.3 · Adding a photograph rewrites one region of the case file
+
+`fixtures/case/<exchangeId>.json` is committed, and it is the same file `scripts/mediate.mjs` reads
+and `scripts/demo-reset.mjs` edits. So a photograph is attached by **replacing that one region of the
+file's text**, never by re-serialising the record. A re-serialisation reformats the message thread and the listing
+too — one action becomes a large diff on a file nothing else had touched — and it leaves the
+photographs in a shape the reset can no longer restore byte for byte.
+
+There is therefore **one writer and one format**: `src/case-input.mjs` makes the same edit
+`scripts/demo-reset.mjs` does, through the one function in `src/case-fixture.mjs` that performs it.
+
+That function moves a case between **rounds** — a round being the photographs a case is defined to
+hold at that point in the mediation, named in source rather than read off the file. The request
+body's `photo` id names the round a case reaches once that photograph has been added, and applying
+the round sets the whole list of photographs at once. Three properties follow from that alone,
+rather than from separate checks:
+
+- the id is matched against the rounds held in source, so one that names no round is refused with
+  `404`. No path is ever built from it and nothing is read off disk to decide, which is what closes
+  traversal;
+- applying the round a case already stands in reproduces its text exactly, so a repeat leaves the
+  file untouched and still answers `200`;
+- the two photographs of the outer carton are **one evidence slot** and carry the same id, so the
+  branch that arrives fills the slot rather than joining the one already in it. A case holding both
+  an intact and a crushed outer carton would be evidence that contradicts itself.
+
+The write is atomic — a private temporary file, then a rename — and the text is parsed before it is
+written, so text that would not parse is never the text on disk.
+
+⚠️ **A case input is never created here.** The photographs are one region of a file that also
+carries the listing and the message thread, so a file written by this action alone would hold
+photographs and neither of those — a purchase the view omits for having no listing (§6.1). An absent
+case is refused rather than invented.
 
 ## 9 · The settlement seam
 
@@ -356,4 +390,5 @@ credentials, which is acceptable **only** because of that.
 | `moneyLine()` with a split | `outcome: "split"` with a percentage renders the amount, not "returned" |
 | `buyer-server.mjs` | Request-level, as the receiver is tested: routes, guards, malformed input |
 | `completion.mjs`, `resolution.mjs` | Called with a store and a stub; `settle()` asserts it throws until implemented |
+| The photograph write | Against the committed case file's **text**: the opening round plus the photograph reproduces it byte for byte, and §8.3's properties still hold on what the route wrote |
 | The screen itself | Reviewed by looking at it. No browser automation |
