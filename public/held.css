@@ -1,0 +1,42 @@
+:root {
+  --ground: #FFFCF7; --ink: #1A1815; --quiet: #7A7368; --edge: #EDE5D8;
+  --green-ground: #E7F3EC; --green-ink: #0F5132; --green-quiet: #4A6B58;
+  --amber-ground: #FDF3E3; --amber-ink: #8A5A12;
+}
+body {
+  margin: 0; padding: 30px 40px; background: var(--ground); color: var(--ink);
+  font: 16px/1.45 "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.mark { font-size: 20px; font-weight: 700; color: var(--green-ink); margin-bottom: 26px; }
+main { width: 440px; margin: 0 auto; }
+
+/* The money block is the largest type on the screen, in every state. */
+.money { background: var(--green-ground); border-radius: 20px; padding: 24px 26px; margin-bottom: 24px; }
+.money b { display: block; font-size: 34px; font-weight: 650; line-height: 1.2;
+           letter-spacing: -0.02em; color: var(--green-ink); }
+.money span { display: block; font-size: 22px; color: var(--green-quiet); margin-top: 6px; }
+.money.paid, .money.returned { background: var(--green-ink); }
+.money.paid b, .money.returned b { color: #fff; }
+.money.paid span, .money.returned span { color: #B7D6C4; }
+/* A negotiated ending is neither clean ending, and must not be coloured as one. */
+.money.split { background: var(--amber-ground); }
+.money.split b, .money.split span { color: var(--amber-ink); }
+
+.item { display: flex; gap: 18px; align-items: center; margin-bottom: 26px; }
+.thumb { width: 76px; height: 76px; border-radius: 16px; background: #EFE7DA; flex: none; }
+.status { font-size: 40px; font-weight: 680; letter-spacing: -0.025em; margin-bottom: 20px; }
+.notice { font-size: 20px; line-height: 1.5; color: var(--quiet); margin-bottom: 20px; }
+.timeline { list-style: none; margin: 0 0 24px; padding: 0; font-size: 20px; color: var(--quiet); }
+.timeline li { padding: 8px 0; }
+.box { background: #fff; border: 1px solid var(--edge); border-radius: 22px; padding: 26px; }
+.amount { font-size: 46px; font-weight: 700; letter-spacing: -0.03em; margin-bottom: 8px; }
+.why { font-size: 20px; line-height: 1.5; color: var(--quiet); margin-bottom: 22px; }
+
+button {
+  display: block; width: 100%; border: 0; border-radius: 999px; padding: 16px;
+  font: inherit; font-size: 21px; font-weight: 620; cursor: pointer;
+  background: var(--green-ink); color: #fff; margin-bottom: 8px;
+}
+button.secondary { background: #fff; color: var(--ink); border: 1.5px solid #DCD3C4; }
+button[disabled] { background: #E7E2D8; color: #9A938A; cursor: default; }
+.reason { font-size: 16px; color: var(--quiet); text-align: center; margin: 0 0 12px; }
