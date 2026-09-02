@@ -23,7 +23,7 @@
 
 import { utils } from "ethers";
 import { toBasisPoints } from "./proposal.mjs";
-import { outcomeFor } from "./adapter.mjs";
+import { outcomeFor, resolutionDueAt } from "./adapter.mjs";
 import { PERMITTED_ACTIONS } from "./authorisations.mjs";
 
 // Why an exchange cannot be settled, decided from the record before anything is
@@ -104,6 +104,7 @@ export async function settle({
   authorisations,
   chain,
   execute = false,
+  now = Date.now(),
 }) {
   const record = exchanges.get(exchangeId);
   if (!record) throw new Error(`unknown exchange ${exchangeId}`);
@@ -122,6 +123,17 @@ export async function settle({
   if (record.escalatedAt != null) {
     throw new NotSettleableError(exchangeId, "it has been escalated, and a person is deciding it");
   }
+  // ⚠️ Past this instant the protocol reverts, and a reverted meta-transaction
+  // comes back through the path a successful one returns through. So without
+  // this the caller gets no error: it gets chain.resolve() polling for a
+  // finalisation that can never land, and the buyer's button held disabled
+  // until that poll gives up. scripts/accept-resolution.mjs already refuses to
+  // sign past this same instant, read through the same function — this is that
+  // refusal on the spending half, where the money is.
+  const dueAt = resolutionDueAt(record);
+  if (dueAt != null && now >= dueAt) {
+    throw new NotSettleableError(exchangeId, "its resolution window has closed");
+  }
 
   if (buyerPercent == null) {
     throw new Error(`refusing to settle exchange ${exchangeId} without being told which split it settles at`);
@@ -129,8 +141,14 @@ export async function settle({
 
   const consent = consents.read(exchangeId);
   if (!consent) throw new NoConsentError(exchangeId);
-  if (consent.buyerPercent !== buyerPercent) {
-    throw new ConsentMismatchError(exchangeId, consent.buyerPercent, buyerPercent);
+  // ⭐ Checked on the field that is actually submitted. chain.resolve() sends
+  // consent.buyerPercentBasisPoints; consent.buyerPercent is only the field
+  // beside it, and the two agree because save() refused to write them
+  // disagreeing — one write earlier, on the other side of a file that read()
+  // parses without validating. Checking one and submitting the other would put
+  // this binding everywhere except the path the money takes.
+  if (consent.buyerPercentBasisPoints !== toBasisPoints(buyerPercent)) {
+    throw new ConsentMismatchError(exchangeId, consent.buyerPercentBasisPoints / 100, buyerPercent);
   }
 
   if (!execute) return { planned: true, finalisedAt: null, outcome: null, buyerPercent };

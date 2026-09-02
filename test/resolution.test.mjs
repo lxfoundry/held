@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { settle } from "../src/resolution.mjs";
@@ -39,8 +39,11 @@ const fakeAuthorisations = () => ({ discard: () => {}, list: () => [] });
 const settledAt = (basisPoints) =>
   ({ resolve: async () => ({ finalisedAt: 1234, buyerPercentBasisPoints: basisPoints }) });
 
+// ⚠️ now is stated, never left to the clock: seeded() raises its dispute at 9
+// with a 100ms resolution period, so the window this fixture describes closed
+// in January 1970 and a real Date.now() would refuse every test below.
 const run = (over = {}) => settle({
-  exchangeId: "241", buyerPercent: 25,
+  exchangeId: "241", buyerPercent: 25, now: 100,
   exchanges: seeded(), consents: consented(), authorisations: fakeAuthorisations(),
   chain: never, execute: false, ...over,
 });
@@ -81,6 +84,37 @@ test("an undisputed exchange refuses: there is no dispute to resolve", async () 
 // Once a case is with a person, the split they decide is theirs to decide. The
 // protocol refuses a mutual resolution on an escalated dispute, and one that
 // slipped past would take the decision back off them.
+// ⚠️ Past the deadline the protocol reverts, but the relay resolves a reverted
+// meta-transaction exactly as it resolves a successful one — so the cost of
+// omitting this is not a wrong answer, it is no answer: chain.resolve() polls
+// for a finalisation that never lands. `never` fails if the chain is reached.
+test("a lapsed resolution window refuses, and the chain is never reached", async () => {
+  await assert.rejects(
+    () => run({ now: 109, execute: true }),
+    /resolution window has closed/
+  );
+});
+
+test("the last instant inside the window still settles", async () => {
+  const result = await run({ now: 108, execute: true, chain: settledAt(2500) });
+  assert.equal(result.outcome, "split");
+});
+
+// ⭐ The number checked must be the number submitted. chain.resolve() sends the
+// basis points, so a consent whose two fields disagreed would pass a check on
+// the percentage and settle at the other one. createConsentStore.save() refuses
+// to write that pair — which is why this consent is written past it, and why
+// the check cannot live there alone: read() parses without validating.
+test("a consent whose basis points disagree with its percentage cannot settle", async () => {
+  const consents = consented();
+  const corrupted = { ...consents.read("241"), buyerPercentBasisPoints: 0 };
+  writeFileSync(join(consents.dir, "241.json"), JSON.stringify(corrupted));
+  await assert.rejects(
+    () => run({ consents, execute: true }),
+    /is for 0%, not 25%/
+  );
+});
+
 test("an escalated exchange refuses: a person is deciding it", async () => {
   await assert.rejects(
     () => run({ exchanges: seeded({ escalatedAt: 11 }), execute: true }),
@@ -129,7 +163,7 @@ test("a rejecting chain leaves the record and the consent exactly as it found th
   const consents = consented();
   const chain = { resolve: async () => { throw new Error("relay failed"); } };
   await assert.rejects(
-    () => settle({ exchangeId: "241", buyerPercent: 25, exchanges, consents,
+    () => settle({ exchangeId: "241", buyerPercent: 25, now: 100, exchanges, consents,
       authorisations: fakeAuthorisations(), chain, execute: true }),
     /relay failed/
   );
@@ -145,7 +179,7 @@ test("a rejecting chain leaves the record and the consent exactly as it found th
 
 test("a confirmed settlement records the split the protocol produced", async () => {
   const exchanges = seeded();
-  const result = await settle({ exchangeId: "241", buyerPercent: 25, exchanges, consents: consented(),
+  const result = await settle({ exchangeId: "241", buyerPercent: 25, now: 100, exchanges, consents: consented(),
     authorisations: fakeAuthorisations(), chain: settledAt(2500), execute: true });
 
   assert.equal(result.planned, false);
@@ -162,7 +196,7 @@ test("a confirmed settlement records the split the protocol produced", async () 
 // path that works; where they do not, the record must state what happened.
 test("the recorded outcome comes from the protocol, not from the request", async () => {
   const exchanges = seeded();
-  const result = await settle({ exchangeId: "241", buyerPercent: 25, exchanges, consents: consented(),
+  const result = await settle({ exchangeId: "241", buyerPercent: 25, now: 100, exchanges, consents: consented(),
     authorisations: fakeAuthorisations(), chain: settledAt(10000), execute: true });
   assert.equal(result.outcome, "returned");
   assert.equal(exchanges.get("241").outcome, "returned");
@@ -171,7 +205,7 @@ test("the recorded outcome comes from the protocol, not from the request", async
 
 test("a settled consent cannot be replayed", async () => {
   const consents = consented();
-  await settle({ exchangeId: "241", buyerPercent: 25, exchanges: seeded(), consents,
+  await settle({ exchangeId: "241", buyerPercent: 25, now: 100, exchanges: seeded(), consents,
     authorisations: fakeAuthorisations(), chain: settledAt(2500), execute: true });
   assert.equal(consents.read("241"), null);
 });
@@ -182,7 +216,7 @@ test("a settled exchange keeps none of its standing authorisations", async () =>
   const exchanges = seeded();
   const discarded = [];
   const authorisations = { discard: (_id, action) => discarded.push(action), list: () => [] };
-  await settle({ exchangeId: "241", buyerPercent: 25, exchanges, consents: consented(),
+  await settle({ exchangeId: "241", buyerPercent: 25, now: 100, exchanges, consents: consented(),
     authorisations, chain: settledAt(2500), execute: true });
   assert.deepEqual(discarded.sort(), ["escalateDispute", "raiseDispute"]);
   assert.deepEqual(exchanges.get("241").authorisations, []);
