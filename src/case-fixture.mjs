@@ -67,6 +67,35 @@ export function photoPathsFor(round) {
   return (ROUNDS[round] ?? []).map((name) => PHOTOS[name].path);
 }
 
+// The round a case holds before it has been asked for anything.
+export const OPENING_ROUND = "1";
+
+// The round a case reaches once `name` is the photograph that has been added to
+// it — the whole of what adding a photograph does here. It is the opening round
+// plus one photograph, and which one is the branch choice: `carton` gives round
+// 2, `carton-crushed` gives 2b.
+//
+// ⭐ Derived from ROUNDS rather than tabulated beside them. A second table
+// would be a second place the same mapping is stated, and a table that
+// disagrees with ROUNDS fails silently: the wrong round writes the wrong
+// evidence and every caller still reports success. A search over the rounds
+// themselves cannot disagree with them.
+//
+// Undefined for a photograph no round adds to the opening one — `inner`, which
+// the opening round already holds, and anything that is not a photograph at
+// all. It is not an answer, and the caller decides what that means.
+export function roundAdding(name) {
+  const opening = ROUNDS[OPENING_ROUND];
+  return Object.keys(ROUNDS).find((round) => {
+    const names = ROUNDS[round];
+    return (
+      names.length === opening.length + 1 &&
+      names[opening.length] === name &&
+      opening.every((held, i) => names[i] === held)
+    );
+  });
+}
+
 // Returns the fixture text with its photographs set to `round`. Throws rather
 // than reporting, so the caller owns how a failure reads.
 export function applyPhotos(text, round) {

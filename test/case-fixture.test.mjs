@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ROOT } from "../src/env.mjs";
 import { assembleBundle } from "../src/evidence.mjs";
-import { applyPhotos, photoPathsFor, ROUNDS, ROUND_NUMBER } from "../src/case-fixture.mjs";
+import { applyPhotos, photoPathsFor, roundAdding, OPENING_ROUND, PHOTOS, ROUNDS, ROUND_NUMBER } from "../src/case-fixture.mjs";
 
 // ⭐ The real committed fixture, not a copy shaped like one. The property under
 // test is that the edit is an exact inverse over *this file's* formatting, so a
@@ -32,6 +32,37 @@ test("each round holds exactly the photographs it is defined to hold", () => {
       `round ${round}`
     );
   }
+});
+
+// ⭐ The mapping the buyer's "Add a photo" runs on: a photograph names the
+// round the case reaches once it has been added, and that is what makes the one
+// edit in this file the only writer of a case's photographs. Pinned to the two
+// answers it must give, so a change to ROUNDS that silently stopped naming a
+// branch is a failure here rather than a wrong evidence set written at run time.
+test("a branch photograph names the round that adds it", () => {
+  assert.equal(roundAdding("carton"), "2");
+  assert.equal(roundAdding("carton-crushed"), "2b");
+});
+
+test("the round a photograph names is the opening round plus that photograph", () => {
+  for (const name of ["carton", "carton-crushed"]) {
+    assert.deepEqual(
+      photoPathsFor(roundAdding(name)),
+      [...photoPathsFor(OPENING_ROUND), PHOTOS[name].path],
+      name
+    );
+  }
+});
+
+// ⚠️ Not an answer, rather than a wrong one. The opening round already holds
+// `inner`, so no round adds it; a traversal attempt names no round for the same
+// reason anything else does not. The caller decides what an absent round means —
+// src/case-input.mjs refuses the request.
+test("a photograph no round adds names no round", () => {
+  assert.equal(roundAdding("inner"), undefined);
+  assert.equal(roundAdding("../../etc/passwd"), undefined);
+  assert.equal(roundAdding(""), undefined);
+  assert.equal(roundAdding(undefined), undefined);
 });
 
 test("the edit leaves everything outside the photographs alone", () => {
