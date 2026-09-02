@@ -216,12 +216,52 @@ test("fill replaces every placeholder and leaves nothing unresolved", () => {
   assert.throws(() => fill("paid on {date}", {}), /date/);
 });
 
+// The atomic flow exists precisely so none of these words ever need to appear.
+const FORBIDDEN =
+  /\b(voucher|rNFT|redeem\w*|escrow\w*|commit\w*|exchange\w*|dispute\w*|offer\w*|wallet|on-chain|onchain|blockchain|smart contract|token|gas|transaction|protocol)\b/i;
+
 test("no user-visible string contains protocol vocabulary", () => {
-  // The atomic flow exists precisely so none of these words ever need to appear.
-  const forbidden =
-    /\b(voucher|rNFT|redeem\w*|escrow\w*|commit\w*|exchange\w*|dispute\w*|offer\w*|wallet|on-chain|onchain|blockchain|smart contract|token|gas|transaction|protocol)\b/i;
-  const found = JSON.stringify(BUYER_STRINGS).match(forbidden);
+  const found = JSON.stringify(BUYER_STRINGS).match(FORBIDDEN);
   assert.equal(found, null, `forbidden vocabulary: ${found}`);
+});
+
+// ⭐ The other half of the rule, and until now the unguarded half. The
+// constraint is that every user-visible string lives in BUYER_STRINGS, which is
+// enforced structurally by walking this module — and a sentence typed straight
+// into the markup is invisible to that walk. public/ is exactly where a hurried
+// edit puts one, so it is read here.
+//
+// ⚠️ String literals only, for held.js. Its identifiers and its operator
+// diagnostics are not drawn — `m.exchangeId` names a field, and console.error
+// is read by whoever runs this and never by a buyer — so scanning the raw
+// source would fail on text that reaches no screen, and a test that cannot pass
+// gets deleted rather than fixed. A template's interpolations are dropped for
+// the same reason: `${m.exchangeId}` is a value, `?purchase=` is the authored
+// text around it, and only the authored text is the rule's business.
+test("⭐ no authored string in public/ contains protocol vocabulary either", async () => {
+  const { readFileSync, readdirSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const { ROOT } = await import("../src/env.mjs");
+
+  const dir = join(ROOT, "public");
+  const files = readdirSync(dir);
+  // A rename that emptied this directory would leave the test green while
+  // guarding nothing, so what it read is asserted before what it found.
+  assert.ok(files.includes("held.js") && files.includes("index.html"), `public/ holds ${files}`);
+
+  const LITERAL = /"([^"\\]*(?:\\.[^"\\]*)*)"|'([^'\\]*(?:\\.[^'\\]*)*)'|`([^`\\]*(?:\\.[^`\\]*)*)`/g;
+  for (const name of files) {
+    const source = readFileSync(join(dir, name), "utf8");
+    const authored = name.endsWith(".js")
+      ? [...source.split("\n").map((l) => l.replace(/^\s*\/\/.*$/, "")).join("\n").matchAll(LITERAL)]
+          .map((m) => m[1] ?? m[2] ?? m[3])
+          .flatMap((literal) => literal.split(/\$\{[^}]*\}/))
+      : [source];
+    for (const text of authored) {
+      const found = text.match(FORBIDDEN);
+      assert.equal(found, null, `${name} says "${found}" in ${JSON.stringify(text)}`);
+    }
+  }
 });
 
 test("every string is present and none is empty", () => {
