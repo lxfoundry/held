@@ -28,7 +28,7 @@ import { connect, waitForState, RELAY_ONLY_ENV_KEYS } from "../src/chain.mjs";
 import { loadEnv, ROOT } from "../src/env.mjs";
 import { createExchangeStore } from "../src/exchanges.mjs";
 import { createAuthorisationStore } from "../src/authorisations.mjs";
-import { raiseFor } from "../src/disputes.mjs";
+import { confirmedAt, raiseFor } from "../src/disputes.mjs";
 
 const MS = 1000;
 
@@ -144,13 +144,12 @@ const relay = async (stored) => {
   return receipt;
 };
 
-const confirm = async (stored) =>
+// ⭐ It answers with the date the protocol recorded, not just that it did —
+// what raiseFor writes onto the record, so that the buyer's case is dated by the
+// chain rather than by whenever this script's read-back came back.
+const confirm = (stored) =>
   waitForState(
-    async () => {
-      const result = await disputeHandler.getDispute(stored.exchangeId);
-      if (!result.exists) return null;
-      return result.disputeDates.disputed.isZero() ? null : true;
-    },
+    async () => confirmedAt(await disputeHandler.getDispute(stored.exchangeId), "raiseDispute"),
     { what: `raiseDispute to be recorded for exchange ${stored.exchangeId}` }
   );
 

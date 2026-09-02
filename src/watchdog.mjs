@@ -170,13 +170,21 @@ export function createWatchdog({
     // taken at its word. A revert throws here, which leaves the authorisation
     // in place and the record untouched, so the next sweep retries with the
     // window still open instead of recording a raise that does not exist.
-    await confirm(stored);
+    //
+    // ⭐ And it answers with the date the protocol recorded, which is the date
+    // this step writes down. Anything else is this process's clock describing a
+    // fact the protocol already dated — off by the read-back's own latency at
+    // best, and by however long the chain has held an action this record had
+    // lost track of at worst. now() is the fallback for a confirm() that reports
+    // no date, never the first answer: a non-number reaches the store's shape
+    // check, which throws after the relay has already landed.
+    const confirmed = await confirm(stored);
 
     // Discarded only once the action is known to have landed. Doing it any
     // earlier trades the buyer's protection for the appearance of success.
     discard(current.exchangeId, action);
 
-    const at = now();
+    const at = Number.isFinite(confirmed) ? confirmed : now();
     if (action === ACTIONS.RAISE) {
       // ⭐ Read again, exactly as the attribution guard above does and for the
       // same reason. confirm() asks whether a dispute exists, not whose it is,

@@ -11,6 +11,27 @@
 // before a freeze is the larger risk. The order is the part that matters and it
 // is identical: attribute, relay, confirm, discard, record.
 
+const MS = 1000;
+
+// ⭐ What the protocol says the time is, in milliseconds — or null while it says
+// the action has not landed, which is the signal waitForState polls on.
+//
+// ⚠️ The read-back used to answer `true` and threw this number away, leaving the
+// caller to stamp its own clock on a fact the protocol already dated. The two
+// are not interchangeable: `seed --adopt` rewrites a record with the dispute
+// fields null, so the chain can have held a dispute for a day while the record
+// reads as undisputed — and now() would then date it to now, putting the
+// escalation deadline a day past the one the protocol enforces.
+//
+// One copy for both spenders, and for both actions: a raise and an escalation
+// differ here only in which of the two dates they read.
+export function confirmedAt(dispute, action) {
+  if (!dispute?.exists) return null;
+  const { disputed, escalated } = dispute.disputeDates;
+  const landed = action === "raiseDispute" ? disputed : escalated;
+  return landed.isZero() ? null : Number(landed) * MS;
+}
+
 export async function raiseFor({
   exchangeId,
   by,
@@ -43,7 +64,13 @@ export async function raiseFor({
   // meta-transaction returns through the same path as a successful one, so the
   // protocol is asked. A throw here leaves the authorisation in place and the
   // window open for another attempt.
-  await confirm(stored);
+  //
+  // ⭐ And what it answers with is the date the protocol recorded, which is the
+  // one thing this function has to write down. It polled for exactly that, so
+  // taking it costs nothing; this process's clock is the fallback for a
+  // confirm() that reports no date rather than the first answer.
+  const confirmed = await confirm(stored);
+  const at = Number.isFinite(confirmed) ? confirmed : now();
 
   // Only once it is known to have landed. Any earlier trades the buyer's
   // protection for the appearance of success.
@@ -62,7 +89,7 @@ export async function raiseFor({
   // buyer's. Whoever recorded a completed raise owns it.
   const settled = exchanges.get(exchangeId);
   exchanges.update(exchangeId, {
-    ...(settled?.disputeRaisedAt == null ? { disputeRaisedAt: now(), disputeRaisedBy: by } : {}),
+    ...(settled?.disputeRaisedAt == null ? { disputeRaisedAt: at, disputeRaisedBy: by } : {}),
     authorisations: authorisations.list(exchangeId),
   });
   return stored;

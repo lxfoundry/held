@@ -231,6 +231,39 @@ test("the authorisation is discarded only once the action is confirmed", async (
   assert.equal(authorisations.has("42", "raiseDispute"), false);
 });
 
+// ── The recorded time is the protocol's, not this process's ───────────────────
+
+test("a confirmed raise is recorded at the time the protocol gives, not this process's clock", async () => {
+  // ⚠️ The gap is not latency. `seed --adopt` rewrites a record with the
+  // dispute fields null, so a dispute the chain has held for a day reads back
+  // here as none — and a raise stamped with now() would date it to now, putting
+  // the escalation deadline a day past the one the protocol enforces.
+  const { watchdog, exchanges } = harness({ confirmImpl: async () => 3 * DAY });
+  await watchdog.sweep();
+  assert.equal(exchanges.get("42").disputeRaisedAt, 3 * DAY, "the sweep recorded its own clock instead");
+});
+
+test("a confirmed escalation is recorded at the time the protocol gives", async () => {
+  const { watchdog, exchanges } = harness({
+    chainOver: { disputeRaisedAt: 0, disputeRaisedBy: "buyer" },
+    confirmImpl: async () => 6 * DAY,
+  });
+  const [result] = await watchdog.sweep();
+  assert.equal(result.action, ACTIONS.ESCALATE);
+  assert.equal(exchanges.get("42").escalatedAt, 6 * DAY);
+});
+
+test("a confirm that reports no time still records one", async () => {
+  // ⚠️ Green before this change as well as after, and here for what it stops:
+  // passing the read-back through unchecked. A confirm() that answers `true` —
+  // as every one in this file did until now — would reach the store as a
+  // non-number, and the store rejects that *after* the relay has landed, which
+  // leaves the dispute on chain with nothing on disk saying so.
+  const { watchdog, exchanges } = harness({ confirmImpl: async () => true });
+  await watchdog.sweep();
+  assert.equal(exchanges.get("42").disputeRaisedAt, PERIOD - HOUR, "the sweep's own clock, as before");
+});
+
 // ── One bad file must not disarm the whole sweep ──────────────────────────────
 
 test("a corrupt record is reported and the others are still swept", async () => {

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { raiseFor } from "../src/disputes.mjs";
+import { confirmedAt, raiseFor } from "../src/disputes.mjs";
 import { createExchangeStore } from "../src/exchanges.mjs";
 import { createAuthorisationStore } from "../src/authorisations.mjs";
 import { BUYER_STRINGS, parcelLine } from "../src/buyer-state.mjs";
@@ -180,4 +180,73 @@ test("a raise already recorded by the watchdog is not relabelled as the buyer's"
     false,
     "the spent signature is still listed as protecting the exchange"
   );
+});
+
+// ── The recorded time is the protocol's, not this process's ───────────────────
+
+test("the buyer's raise is recorded at the time the protocol gives, not this process's clock", async () => {
+  // ⚠️ The two differ by more than latency once a record has been rewritten by
+  // `seed --adopt`: the chain can have held the dispute for a day while this
+  // record reads as undisputed, and now() would date it to now.
+  const h = harness();
+  await raiseFor({
+    exchangeId: "241",
+    by: "buyer",
+    exchanges: h.exchanges,
+    authorisations: h.authorisations,
+    relay: h.relay,
+    confirm: async () => 3 * DAY,
+    now: () => 5 * DAY,
+  });
+  const record = h.record();
+  assert.equal(record.disputeRaisedAt, 3 * DAY, "the raise was recorded on this process's clock instead");
+  // ⭐ And the attempt keeps this process's clock. It records when this system
+  // submitted, as against when the protocol recorded it — that gap is the whole
+  // of its use, so taking the chain's answer for both would erase it.
+  assert.equal(record.disputeRaiseAttemptedAt, 5 * DAY);
+});
+
+test("a confirm that reports no time still records one", async () => {
+  // Green before this change as well as after — see the twin in
+  // test/watchdog.test.mjs for what it stops.
+  const h = harness();
+  await raiseFor({
+    exchangeId: "241",
+    by: "buyer",
+    exchanges: h.exchanges,
+    authorisations: h.authorisations,
+    relay: h.relay,
+    confirm: h.confirm,
+    now: () => 5 * DAY,
+  });
+  assert.equal(h.record().disputeRaisedAt, 5 * DAY);
+});
+
+// ── Reading a confirmation back off the protocol ──────────────────────────────
+
+// Enough of a BigNumber for what confirmedAt does with one. The production
+// values arrive from ethers, and `Number(bn)` is how every chain read in this
+// codebase converts them.
+const seconds = (value) => ({ isZero: () => value === 0, toString: () => String(value) });
+const onChain = ({ exists = true, disputed = 0, escalated = 0 } = {}) => ({
+  exists,
+  disputeDates: { disputed: seconds(disputed), escalated: seconds(escalated) },
+});
+
+test("confirmedAt reads back the raise date the protocol recorded, in milliseconds", () => {
+  assert.equal(confirmedAt(onChain({ disputed: 1_756_000_000 }), "raiseDispute"), 1_756_000_000_000);
+});
+
+test("confirmedAt reads back the escalation date for an escalation", () => {
+  const dispute = onChain({ disputed: 1_756_000_000, escalated: 1_756_000_060 });
+  assert.equal(confirmedAt(dispute, "escalateDispute"), 1_756_000_060_000);
+});
+
+test("confirmedAt reports nothing for an action the protocol has not recorded", () => {
+  // ⚠️ Null, not zero and not false. It is what waitForState polls on, so "not
+  // yet" reading as a time would have the caller record a raise that has not
+  // happened — and a raise dated to the epoch.
+  assert.equal(confirmedAt(onChain({ disputed: 1_756_000_000 }), "escalateDispute"), null);
+  assert.equal(confirmedAt(onChain(), "raiseDispute"), null);
+  assert.equal(confirmedAt(onChain({ exists: false, disputed: 1_756_000_000 }), "raiseDispute"), null);
 });
