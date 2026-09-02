@@ -193,7 +193,7 @@ Why this line is required rather than decorative:
 
 | Module | Responsibility | Depends on |
 |---|---|---|
-| `src/buyer-view.mjs` | **Pure.** `viewFor({ record, tracking, caseRecord, listing, events, allowConfirm, allowPhoto })` → the whole view model. Every state in §4 is one case. | `buyer-state.mjs` only |
+| `src/buyer-view.mjs` | **Pure.** `viewFor({ record, tracking, caseRecord, listing, photos, events, allowConfirm })` → the whole view model. Every state in §4 is one case. | `buyer-state.mjs` only |
 | `src/buyer-state.mjs` | All user-visible copy; the two lines | nothing |
 | `src/buyer-server.mjs` | HTTP: static files, JSON reads, action writes | the stores, the action modules |
 | `public/index.html`, `held.css`, `held.js` | One screen, rendered from the view model | nothing |
@@ -205,15 +205,17 @@ Why this line is required rather than decorative:
 `src/buyer-view.mjs` performs **no I/O**. The server gathers, the view decides, the client draws.
 That is what makes every state in §4 a table row in a test rather than a browser session.
 
-**The client draws every action the model emits, and decides none of them.** `allowConfirm` and
-`allowPhoto` are the two operator settings the model takes, and they work the same way: the
-operator's choice becomes an action that is enabled, or one drawn disabled with a neutral reason.
-A client that dropped an action the model reported as enabled would leave the buyer reading the
-mediator's question with no visible way to answer it — so it draws what it is told.
+**The client draws every action the model emits, and decides none of them.** `allowConfirm` is the
+one operator setting the model takes: the operator's choice becomes an action that is enabled, or
+one drawn disabled with a neutral reason. A client that dropped an action the model reported as
+enabled would leave the buyer reading the mediator's question with no visible way to answer it — so
+it draws what it is told.
 
-⚠️ `allowPhoto` says **whether** a photograph is on offer, never which one. Which branch of the
-damage case to attach is an operator's decision: it reaches the server in the page's own URL, is
-sent back in the `photos` request body, and never appears in the buyer's model.
+⚠️ **Adding a photograph takes no such setting, and is never drawn disabled** (§8.3). Which branch
+of the damage case to attach is an operator's decision, but it is not a decision about *whether* the
+buyer may answer: it reaches the server in the page's own URL, is sent back in the `photos` request
+body, and never appears in the buyer's model. `photos` — the photographs the case already holds —
+is an input to the model for the opposite reason: it is what §8.4 draws back to the buyer.
 
 ### 6.1 · Where the item comes from
 
