@@ -22,6 +22,7 @@
     "confirm": "node scripts/confirm-receipt.mjs",
     "replay": "node scripts/replay.mjs",
     "raise": "node scripts/raise-dispute.mjs",
+    "accept": "node scripts/accept-resolution.mjs",
     "mediate": "node scripts/mediate.mjs",
     "buyer": "node src/buyer-server.mjs",
     "demo-reset": "node scripts/demo-reset.mjs",

@@ -237,8 +237,8 @@ npm run provision        # idempotent; sets up the accounts chain-check looks fo
 npm test
 ```
 
-`npm run seed` and `npm run confirm` plan and stop by default — neither signs nor submits anything
-without an explicit `-- --execute`.
+`npm run seed`, `npm run confirm`, `npm run raise` and `npm run accept` plan and stop by default —
+none of them signs or submits anything without an explicit `-- --execute`.
 
 The webhook receiver is containerised (`Dockerfile`) and deploys to Fly (`fly.toml`). It requires a
 public HTTPS origin, since Ship24 pushes events to it, and it refuses to start without a tracker
@@ -284,6 +284,7 @@ Environment variables, read once at startup:
 | `EXCHANGES_DIR` | `state/exchanges` | Shared with the watchdog and the scripts |
 | `EVENTS_DIR` | `fixtures/events` | Shared with the receiver |
 | `BUYER_UI_ALLOW_CONFIRM` | `false` | See below |
+| `BUYER_UI_ALLOW_SETTLE` | `false` | See below |
 
 ⚠️ **It binds to `127.0.0.1` only, and refuses to start bound to anything else — it is never
 deployed.** Unlike the receiver, this process holds chain credentials: a signer, a relayer
@@ -306,20 +307,43 @@ exchange is irreversible, so before any route runs the server refuses:
 Both answer `403`. Reaching this server with `curl` therefore means sending a loopback `Host`, which
 `curl http://127.0.0.1:3100/...` already does.
 
-### `BUYER_UI_ALLOW_CONFIRM`
+### `BUYER_UI_ALLOW_CONFIRM` and `BUYER_UI_ALLOW_SETTLE`
+
+Two routes move money irreversibly, and each is armed separately.
 
 Completing an exchange pays the seller immediately, cannot be undone, and forfeits the ability to
-dispute that exchange — so the completing action refuses unless `BUYER_UI_ALLOW_CONFIRM=true`.
+dispute that exchange — so it refuses unless `BUYER_UI_ALLOW_CONFIRM=true`. Accepting a mediator's
+proposal splits the escrowed pot between both parties and is equally final — so it refuses unless
+`BUYER_UI_ALLOW_SETTLE=true`. They are separate settings because they are separate acts: an operator
+may well want one and not the other.
 
-This is an **operator guard, never a buyer-facing one**. It has no expression on screen — no
-confirmation dialogue, no second tap, no warning about irreversibility — because completing is an
-ordinary, optional convenience and the interface presents it as one (see below).
+These are **operator guards, never buyer-facing ones**. Neither has an expression on screen — no
+confirmation dialogue, no second tap, no warning about irreversibility, and never the name of an
+environment variable. An unarmed action is drawn disabled with a neutral reason.
 
-A server started with `BUYER_UI_ALLOW_CONFIRM=true` connects to the chain **at startup**, before it
-serves a single request, and refuses to start at all if that connection fails. An unarmed server
-never connects to the chain — every read the buyer's screen polls is answered from the stores
-alone. Connecting eagerly rather than lazily moves a misconfigured chain's failure to a startup
-error an operator can see, rather than to the first press of the button.
+A server started with either set connects to the chain **at startup**, before it serves a single
+request, and refuses to start at all if that connection fails. A server with neither never connects
+to the chain — every read the buyer's screen polls is answered from the stores alone. Connecting
+eagerly rather than lazily moves a misconfigured chain's failure to a startup error an operator can
+see, rather than to the first press of a button.
+
+### Accepting a proposal
+
+Mutual resolution takes two agreements: the counterparty signs a `Resolution` struct, and somebody
+other than that counterparty submits it. The seller side of this build is scripted, so the seller
+signs and the buyer submits.
+
+```bash
+npm run accept -- <exchangeId> --percent <n>             # plans and stops
+npm run accept -- <exchangeId> --percent <n> --execute   # signs
+```
+
+`--percent` is the **buyer's** share of the pot, 0–100. Signing submits nothing, pays no gas and
+settles nothing: it writes one signature to `state/consents/`, bound to that exchange and that exact
+percentage, which the buyer's own acceptance can spend once. A signature for any other split is
+refused rather than spent, so the buyer can only ever settle at the number their screen showed them.
+
+Full behaviour is in [`docs/specs/buyer-view.md`](docs/specs/buyer-view.md) §9.
 
 ### Completing is optional. Disputing is not.
 

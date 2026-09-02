@@ -76,9 +76,14 @@ async function tick() {
     return;
   }
   if (!res.ok) {
-    // The body is an operator diagnostic, never buyer copy — logged here, and
-    // never rendered. See setFailed() for the one sentence the buyer is told.
-    console.error(`could not load: HTTP ${res.status} ${await res.text()}`);
+    // The body carries two separate things. `error` is an operator diagnostic —
+    // protocol vocabulary included — and is logged here, never drawn. The
+    // buyer's sentence is `unavailable`, and drawUnavailable() takes it only
+    // when nothing else stands: once a real read has succeeded that screen
+    // stays, and the next poll reconciles it.
+    const body = await res.text();
+    console.error(`could not load: HTTP ${res.status} ${body}`);
+    if (!lastModel) drawUnavailable(body);
     return;
   }
   let model;
@@ -89,6 +94,26 @@ async function tick() {
     return;
   }
   render(model);
+}
+
+// ⚠️ The one thing drawn without a model behind it, and it is still not this
+// file's words: the sentence comes from the failure body, where the server put
+// it from BUYER_STRINGS. Reached only before a first successful read — after
+// one, tick() leaves the last good screen standing rather than replacing a real
+// purchase with this. A body carrying no sentence draws nothing rather than an
+// invented one, which is the same rule render() applies to an error model.
+function drawUnavailable(body) {
+  let text = null;
+  try {
+    text = JSON.parse(body).unavailable ?? null;
+  } catch (err) {
+    console.error(`the failure body was not readable: ${err.message}`);
+  }
+  if (!text) return;
+  // The next real model must draw over this, and it carries no memory of it.
+  lastDrawn = null;
+  app.textContent = "";
+  app.appendChild(textEl("div", text, "notice"));
 }
 
 async function act(action) {

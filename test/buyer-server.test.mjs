@@ -12,6 +12,7 @@ import { createApp } from "../src/buyer-server.mjs";
 import { createCaseInputStore, UnknownPhotoError } from "../src/case-input.mjs";
 import { applyPhotos } from "../src/case-fixture.mjs";
 import { ROOT } from "../src/env.mjs";
+import { BUYER_STRINGS } from "../src/buyer-state.mjs";
 
 const listing = { title: "Four retired sets", priceText: "200", currency: "£" };
 
@@ -84,6 +85,17 @@ test("an unknown purchase is 404, not an empty view", async () => {
   assert.equal(res.status, 404);
 });
 
+// ⚠️ The client has no last good screen to fall back to before its first
+// successful read, so a failure body that carried only the diagnostic left the
+// page blank for as long as the failure lasted. The sentence is BUYER_STRINGS'
+// and travels in the body; the diagnostic stays beside it and stays unrendered.
+test("a 404 carries the buyer's sentence as well as the operator's diagnostic", async () => {
+  const res = await call(app({ exchanges: { get: () => null, all: () => [] } }), "GET", "/api/purchases/999");
+  const body = JSON.parse(res.body);
+  assert.equal(body.unavailable, BUYER_STRINGS.purchase_unavailable);
+  assert.equal(body.error, "unknown purchase");
+});
+
 test("completing is refused when the operator has not armed it", async () => {
   const res = await call(app(), "POST", "/api/purchases/241/complete");
   assert.equal(res.status, 403);
@@ -100,13 +112,41 @@ test("completing is allowed when it is armed", async () => {
   assert.equal(called, true);
 });
 
-test("settling reports 501 and never a success", async () => {
-  const { NotBuiltError } = await import("../src/resolution.mjs");
+// ⚠️ Settling splits the escrowed pot irreversibly, so it is armed separately
+// from completing rather than riding on it: an operator may well want one and
+// not the other.
+test("settling is refused unless the operator armed it, and the action is never reached", async () => {
+  let called = false;
   const res = await call(
-    app({ actions: { settle: async () => { throw new NotBuiltError(); } } }),
+    app({ actions: { settle: async () => { called = true; return {}; } } }),
     "POST", "/api/purchases/241/settle"
   );
-  assert.equal(res.status, 501);
+  assert.equal(res.status, 403);
+  assert.equal(called, false);
+});
+
+test("an armed server settles and answers the view it rendered", async () => {
+  let called = false;
+  const res = await call(
+    app({ allowSettle: true, actions: { settle: async () => { called = true; return {}; } } }),
+    "POST", "/api/purchases/241/settle"
+  );
+  assert.equal(res.status, 200);
+  assert.equal(called, true);
+});
+
+// ⭐ The one failure this whole path exists to prevent: a refusal must never
+// reach the client as a success. Every way settling can refuse — no consent,
+// a consent at another split, an exchange already finalised — arrives here as
+// a rejected promise, and the client renders "that didn't go through".
+test("a refused settlement is never reported as a success", async () => {
+  const refuse = async () => { throw new Error("no consent is held for exchange 241"); };
+  const res = await call(
+    app({ allowSettle: true, actions: { settle: refuse } }),
+    "POST", "/api/purchases/241/settle"
+  );
+  assert.notEqual(res.status, 200);
+  assert.equal(res.status, 500);
 });
 
 test("an unreadable record does not blank the list", async () => {

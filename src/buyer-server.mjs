@@ -13,7 +13,7 @@ import { readFileSync, statSync } from "node:fs";
 import { extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { viewFor } from "./buyer-view.mjs";
-import { NotBuiltError } from "./resolution.mjs";
+import { BUYER_STRINGS } from "./buyer-state.mjs";
 import { ForeignCaseError, NoCaseInputError, UnknownPhotoError } from "./case-input.mjs";
 import { loadEnv, ROOT } from "./env.mjs";
 
@@ -75,7 +75,7 @@ function hostnameOf(host) {
   return (colon === -1 ? host : host.slice(0, colon)).toLowerCase();
 }
 
-export function createApp({ exchanges, trackers, cases, listings, actions, allowConfirm, port = 3100 }) {
+export function createApp({ exchanges, trackers, cases, listings, actions, allowConfirm, allowSettle = false, port = 3100 }) {
   // The two origins this view is ever served from — the same page, under
   // either name a browser resolves to this loopback socket.
   const ownOrigins = new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`]);
@@ -143,6 +143,7 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
       photos: input.photos ?? [],
       events: snapshot?.events ?? [],
       allowConfirm,
+      allowSettle,
     });
   }
 
@@ -176,19 +177,27 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
     });
   }
 
+  // The two routes that move money, and the setting that arms each. Both
+  // refuse with the variable's real name for the operator; the buyer's screen
+  // never learns it, and src/buyer-view.mjs renders a neutral reason instead.
+  //
+  // ⚠️ Separate settings because they are separate irreversible acts, and an
+  // operator may well want one without the other: completing pays the seller
+  // in full and forfeits the dispute, settling splits a pot on a proposal both
+  // parties have seen.
+  const ARMED_BY = { complete: "BUYER_UI_ALLOW_CONFIRM", settle: "BUYER_UI_ALLOW_SETTLE" };
+
   async function run(res, id, name, req) {
-    if (name === "complete" && !allowConfirm) {
-      // ⚠️ The buyer's screen never learns an environment variable's name —
-      // src/buyer-view.mjs renders a neutral reason instead. This is the one
-      // place the real one is said out loud, for whoever operates the thing.
-      console.error(`refusing to complete exchange ${id}: BUYER_UI_ALLOW_CONFIRM is not set`);
-      return send(res, 403, { error: "BUYER_UI_ALLOW_CONFIRM is not set" });
+    const armed = { complete: allowConfirm, settle: allowSettle };
+    if (name in ARMED_BY && !armed[name]) {
+      console.error(`refusing to ${name} exchange ${id}: ${ARMED_BY[name]} is not set`);
+      return send(res, 403, { error: `${ARMED_BY[name]} is not set` });
     }
     // ⚠️ Fix round 1, item 2: an unwired action and a broken server are
     // different facts. Calling actions[name] unconditionally turns a route
-    // that simply isn't implemented yet (e.g. photos) into a TypeError
-    // laundered into a 500 below — this answers 501, the same honest "not
-    // built" NotBuiltError already gives settle().
+    // that is simply not wired — an unarmed money-moving action is bound to
+    // nothing at all — into a TypeError laundered into a 500 below. This
+    // answers 501 instead: there is nothing there to call.
     if (typeof actions[name] !== "function") {
       return send(res, 501, { error: `${name} is not implemented` });
     }
@@ -228,9 +237,11 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
     try {
       await actions[name]({ exchangeId: id, body });
     } catch (err) {
-      // ⚠️ 501, never 200. The client renders what it is told, and telling it
-      // an unsettled proposal settled is the one failure to prevent.
-      if (err instanceof NotBuiltError) return send(res, 501, { error: err.message });
+      // ⚠️ Never 200. The client renders what it is told, and telling it an
+      // unsettled proposal settled is the one failure this system exists to
+      // prevent — so every refusal below, and the 500 at the end, reaches the
+      // buyer as "that didn't go through" rather than as an ending.
+      //
       // A photo id that names no photograph a case can be moved to hold —
       // including a traversal attempt, which is simply another id that is not
       // on the list. src/case-input.mjs decides that against a table in source,
@@ -336,7 +347,15 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
         } catch (err) {
           console.error(`could not render exchange ${one[1]}: ${err.message}`);
         }
-        return model ? send(res, 200, model) : send(res, 404, { error: "unknown purchase" });
+        // ⭐ Two different things, for two different readers. `error` is the
+        // operator's diagnostic and the client never draws it; `unavailable` is
+        // the buyer's sentence, written in src/buyer-state.mjs with every other
+        // line on this screen. Without the second, a first load that failed
+        // left the page blank with no later poll able to fill it — there is no
+        // last good screen to fall back to before one has ever been drawn.
+        return model
+          ? send(res, 200, model)
+          : send(res, 404, { error: "unknown purchase", unavailable: BUYER_STRINGS.purchase_unavailable });
       }
 
       // ⭐ A photograph the buyer has already sent, addressed by its position
@@ -438,16 +457,19 @@ if (isEntryPoint) {
   const { complete } = await import("./completion.mjs");
   const { raiseFor, confirmedAt } = await import("./disputes.mjs");
   const { settle } = await import("./resolution.mjs");
+  const { CONSENTS_DIR, createConsentStore } = await import("./consents.mjs");
+  const { proposedPercent } = await import("./buyer-view.mjs");
   const { connect, waitForState } = await import("./chain.mjs");
   const { Contract } = await import("ethers");
   const { abis } = await import("@bosonprotocol/core-sdk");
 
   const settings = loadEnv({
-    only: ["BUYER_UI_PORT", "BUYER_UI_ALLOW_CONFIRM", "EXCHANGES_DIR", "EVENTS_DIR"],
+    only: ["BUYER_UI_PORT", "BUYER_UI_ALLOW_CONFIRM", "BUYER_UI_ALLOW_SETTLE", "EXCHANGES_DIR", "EVENTS_DIR"],
   });
 
   const port = Number(settings.BUYER_UI_PORT ?? 3100);
   const allowConfirm = settings.BUYER_UI_ALLOW_CONFIRM === "true";
+  const allowSettle = settings.BUYER_UI_ALLOW_SETTLE === "true";
 
   // Anchored to the repository, not to wherever this was launched from — the
   // same reasoning as every script under scripts/.
@@ -460,6 +482,9 @@ if (isEntryPoint) {
   // watchdog's would be worse than a fixed one that cannot.
   const cases = createCaseStore(join(ROOT, "state/cases"));
   const authorisations = createAuthorisationStore(join(ROOT, "state/authorisations"));
+  // ⚠️ Fixed in source, for the reason src/consents.mjs gives: a consent is a
+  // secret, and state/ is the directory this repository already ignores.
+  const consents = createConsentStore(join(ROOT, CONSENTS_DIR));
 
   // The listing block, photos and messages live in fixtures/case/<id>.json —
   // the same file scripts/mediate.mjs reads for the same exchange, and the
@@ -492,14 +517,18 @@ if (isEntryPoint) {
   // the worst possible moment: the first press of Confirm, mid-demo, as a
   // 500. An armed server proves it can sign *before* anyone touches the
   // button, and refuses to start at all rather than serve a broken one.
-  let chainStatus = "not connected (BUYER_UI_ALLOW_CONFIRM is not set)";
-  if (allowConfirm) {
+  const armedBy = [
+    ...(allowConfirm ? ["BUYER_UI_ALLOW_CONFIRM"] : []),
+    ...(allowSettle ? ["BUYER_UI_ALLOW_SETTLE"] : []),
+  ];
+  let chainStatus = "not connected (nothing that moves money is armed)";
+  if (armedBy.length) {
     try {
       getChain();
       chainStatus = "connected";
     } catch (err) {
-      console.error(`✗ armed (BUYER_UI_ALLOW_CONFIRM=true) but could not connect to the chain: ${err.message}`);
-      console.error("  fix .env, or unset BUYER_UI_ALLOW_CONFIRM to serve the view read-only");
+      console.error(`✗ armed (${armedBy.join(", ")}) but could not connect to the chain: ${err.message}`);
+      console.error(`  fix .env, or unset ${armedBy.join(" and ")} to serve the view read-only`);
       process.exit(1);
     }
   }
@@ -532,6 +561,49 @@ if (isEntryPoint) {
         { what: `exchange ${exchangeId} to read as finalised` }
       );
       return { finalisedAt: Number(finalised.exchange.finalizedDate) * 1000, paid: null };
+    },
+
+    // ⭐ Mutual resolution is two signatures, not one. The counterparty already
+    // signed the Resolution struct — that is what a consent is — and the buyer
+    // signs the meta-transaction that carries it. The relayer submits, so the
+    // buyer needs no native currency, exactly as everywhere else here.
+    //
+    // ⚠️ `buyerPercent` is the SDK's argument name and it takes *basis points*.
+    // Handing it a percentage would settle at a hundredth of what was agreed.
+    async resolve({ exchangeId, consent }) {
+      const { coreSDK, disputeHandler } = getChain();
+      const nonce = Date.now();
+      const signed = await coreSDK.signMetaTxResolveDispute({
+        nonce,
+        exchangeId,
+        buyerPercent: consent.buyerPercentBasisPoints,
+        counterpartySig: { r: consent.r, s: consent.s, v: consent.v },
+      });
+      const tx = await coreSDK.relayMetaTransaction({
+        functionName: signed.functionName,
+        functionSignature: signed.functionSignature,
+        sigR: signed.r,
+        sigS: signed.s,
+        sigV: signed.v,
+        nonce,
+      });
+      await tx.wait();
+
+      // The relayer resolving is not the protocol having acted — read back
+      // through waitForState, as the completion path does and for the same
+      // reason. One read answers both questions: the protocol's own finalised
+      // date, and the split it actually recorded.
+      const settled = await waitForState(
+        async () => {
+          const result = await disputeHandler.getDispute(exchangeId);
+          return result.exists && !result.disputeDates.finalized.isZero() ? result : null;
+        },
+        { what: `exchange ${exchangeId} to read as resolved` }
+      );
+      return {
+        finalisedAt: Number(settled.disputeDates.finalized) * 1000,
+        buyerPercentBasisPoints: settled.dispute.buyerPercent.toNumber(),
+      };
     },
   };
 
@@ -604,15 +676,50 @@ if (isEntryPoint) {
       : {}),
     raise: ({ exchangeId }) => raiseFor({ exchangeId, by: "buyer", exchanges, authorisations, relay, confirm }),
     photos: ({ exchangeId, body }) => caseInput.addPhoto(exchangeId, body?.photo ?? null),
-    // buyerPercent is unused by settle() today — it throws unconditionally
-    // until mutual resolution is implemented — but the call keeps the shape
-    // src/resolution.mjs declares.
-    settle: ({ exchangeId }) => settle({ exchangeId, buyerPercent: null }),
+
+    // ⭐ Wired only when the operator armed it, for the reason completing is:
+    // an unarmed server has no path to settle() at all.
+    ...(allowSettle
+      ? {
+          settle: async ({ exchangeId }) => {
+            // ⭐ The split the buyer is looking at, read through the very
+            // function that put it on their screen. settle() refuses a consent
+            // that does not match it, so this is what makes "the buyer can only
+            // settle at the number they were shown" true rather than intended —
+            // and a second reader of the case record here is exactly how the
+            // two would have drifted apart.
+            const buyerPercent = proposedPercent(cases.read(exchangeId));
+
+            // Which side of the chain call a failure fell on, tracked and
+            // reported as the completion path tracks it. Everything after the
+            // protocol confirms is local bookkeeping, and a failure there means
+            // the pot has been split and nothing on disk says so.
+            let confirmed = false;
+            const watched = {
+              resolve: async (args) => {
+                const result = await chain.resolve(args);
+                confirmed = true;
+                return result;
+              },
+            };
+            try {
+              return await settle({ exchangeId, buyerPercent, exchanges, consents,
+                authorisations, chain: watched, execute: true });
+            } catch (err) {
+              if (confirmed) {
+                console.error(`✗ ${err.message}`);
+                console.error(`  exchange ${exchangeId} is settled on chain, but this record was not updated`);
+              }
+              throw err;
+            }
+          },
+        }
+      : {}),
   };
 
   // ⭐ port, because the guard in createApp needs to recognise this server's
   // own origin — the page is served from exactly this socket.
-  const app = createApp({ exchanges, trackers, cases, listings, actions, allowConfirm, port });
+  const app = createApp({ exchanges, trackers, cases, listings, actions, allowConfirm, allowSettle, port });
 
   const server = createServer(app);
   server.listen(port, HOST, () => {
@@ -620,6 +727,7 @@ if (isEntryPoint) {
     console.log(`  exchanges → ${exchanges.dir}`);
     console.log(`  trackers  → ${trackers.dir}`);
     console.log(`  complete  → ${allowConfirm ? "armed" : "disabled (BUYER_UI_ALLOW_CONFIRM is not set)"}`);
+    console.log(`  settle    → ${allowSettle ? `armed, consents from ${consents.dir}` : "disabled (BUYER_UI_ALLOW_SETTLE is not set)"}`);
     console.log(`  chain     → ${chainStatus}`);
   });
 

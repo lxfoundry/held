@@ -49,14 +49,27 @@ export const BUYER_STRINGS = {
   photo_alt: "A photo you added",
   accept_proposal: "That works for me",
   decline_proposal: "No thanks",
-  decline_unavailable: "Declining isn't available yet",
-  settle_unavailable: "Settling isn't available yet",
+  // ⭐ Declining is not a chain call, so it is not a button. A proposal is
+  // inert: it settles only if the buyer accepts it, and if they never do, the
+  // resolution window runs down and the case goes to a person. This line says
+  // that, rather than promising a control that is coming.
+  decline_unavailable: "If this isn't right, don't accept — a person will look at it.",
+  // The operator has not armed settling. Neutral on purpose: the buyer never
+  // learns an environment variable's name.
+  settle_unavailable: "Accepting isn't available right now",
   complete_unavailable: "This isn't available right now",
 
   // The one line on the screen that no store made: a request that did not go
   // through. The server's own error body is an operator diagnostic and never
   // reaches the buyer, so this is what they are told instead.
   action_failed: "That didn't go through. Have another go.",
+
+  // ⚠️ Drawn when a purchase cannot be read at all, which is the one screen
+  // that has no model behind it — so the server sends this sentence in the
+  // failure body beside its diagnostic, and the client draws it only when
+  // nothing else stands. Spec §11: a purchase whose store is unreadable renders
+  // as unavailable. Neutral, and it names nothing an operator would recognise.
+  purchase_unavailable: "This purchase can't be shown right now.",
 
   on_its_way: "On its way",
   needs_you: "The courier couldn't deliver it — it needs you",

@@ -119,8 +119,10 @@ test("the mediated entries carry the model's own words, not copy written for a d
   const proposal = render(proposed).mediation.proposal;
   const response = recording(proposed.recording).response;
   assert.equal(proposal.reasoning, response.reasoning);
-  // 30% of a £200 listing, formatted by the one formatter both the proposal
-  // and the ending it settles to share.
+  // The recording's own percentage of a £200 listing — read from the response
+  // rather than written here, so a re-recorded round moves this with it —
+  // formatted by the one formatter the proposal and the ending it settles to
+  // share.
   assert.equal(proposal.refund, `£${(200 * response.buyerPercent) / 100}`);
 });
 

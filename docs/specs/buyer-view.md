@@ -193,7 +193,7 @@ Why this line is required rather than decorative:
 
 | Module | Responsibility | Depends on |
 |---|---|---|
-| `src/buyer-view.mjs` | **Pure.** `viewFor({ record, tracking, caseRecord, listing, photos, events, allowConfirm })` → the whole view model. Every state in §4 is one case. | `buyer-state.mjs` only |
+| `src/buyer-view.mjs` | **Pure.** `viewFor({ record, tracking, caseRecord, listing, photos, events, allowConfirm, allowSettle })` → the whole view model. Every state in §4 is one case. | `buyer-state.mjs` only |
 | `src/buyer-state.mjs` | All user-visible copy; the two lines | nothing |
 | `src/buyer-server.mjs` | HTTP: static files, JSON reads, action writes | the stores, the action modules |
 | `public/index.html`, `held.css`, `held.js` | One screen, rendered from the view model | nothing |
@@ -205,11 +205,11 @@ Why this line is required rather than decorative:
 `src/buyer-view.mjs` performs **no I/O**. The server gathers, the view decides, the client draws.
 That is what makes every state in §4 a table row in a test rather than a browser session.
 
-**The client draws every action the model emits, and decides none of them.** `allowConfirm` is the
-one operator setting the model takes: the operator's choice becomes an action that is enabled, or
-one drawn disabled with a neutral reason. A client that dropped an action the model reported as
-enabled would leave the buyer reading the mediator's question with no visible way to answer it — so
-it draws what it is told.
+**The client draws every action the model emits, and decides none of them.** `allowConfirm` and
+`allowSettle` are the two operator settings the model takes, and they work the same way: the
+operator's choice becomes an action that is enabled, or one drawn disabled with a neutral reason.
+A client that dropped an action the model reported as enabled would leave the buyer reading the
+mediator's question with no visible way to answer it — so it draws what it is told.
 
 ⚠️ **Adding a photograph takes no such setting, and is never drawn disabled** (§8.3). Which branch
 of the damage case to attach is an operator's decision, but it is not a decision about *whether* the
@@ -292,7 +292,7 @@ while the case holds at least one photograph. See §8.4.
 | `POST` | `/api/purchases/:id/complete` | `completion.mjs` | `BUYER_UI_ALLOW_CONFIRM` |
 | `POST` | `/api/purchases/:id/raise` | `disputes.mjs` | — |
 | `POST` | `/api/purchases/:id/photos` | `case-input.mjs` | see §8.3 |
-| `POST` | `/api/purchases/:id/settle` | `resolution.mjs` | see §9 |
+| `POST` | `/api/purchases/:id/settle` | `resolution.mjs` | `BUYER_UI_ALLOW_SETTLE`, and see §9 |
 
 The client polls `GET /api/purchases/:id` every 2 seconds. Polling rather than server-sent events
 because it is a fraction of the code and the difference is unobservable over loopback.
@@ -423,22 +423,89 @@ while nothing has moved and a fresh body the instant something does. Without it 
 refetches every thumbnail; with a plain long cache, a press would leave the previous photograph on
 screen.
 
-## 9 · The settlement seam
+## 9 · Settling
 
-`resolveDispute` is not implemented anywhere in this repository. `src/resolution.mjs` exists to
-define its interface now so that nothing else has to change when it arrives:
+Accepting a proposal settles it on chain, and it is the only path in this system that returns money
+to a buyer.
+
+**Mutual resolution takes two agreements, and they are made by different parties at different
+times.** The protocol requires the counterparty's signature over a `Resolution` struct, and requires
+somebody other than that counterparty to submit it — which is what makes a settlement impossible on
+one party's say-so. `src/resolution.mjs` holds both halves in one file, because they have to agree
+on one number:
 
 ```js
-export function settle({ exchangeId, buyerPercent })   // throws NotBuiltError
+signConsent({ coreSDK, exchangeId, buyerPercent })   // the counterparty's half
+settle({ exchangeId, buyerPercent, exchanges, consents, authorisations, chain, execute })
 ```
 
-Until it is implemented the endpoint returns `501`, the client renders the settlement action
-**disabled with a truthful label**, and the state does not advance. The view model still implements
-the `returned` and `split` endings of §4 and they are still tested — the moment `settle()` works,
-they render with no further change.
+The seller side is scripted, so **the seller signs and the buyer submits**.
+`scripts/accept-resolution.mjs <exchangeId> --percent <n> --execute` signs and writes one consent;
+nothing is submitted there, no gas is paid and nothing settles.
+
+### 9.1 · A consent is not an authorisation
+
+`src/authorisations.mjs` holds **standing** instruments: they name an action, the deadline logic
+spends one unattended, and `PERMITTED_ACTIONS` is a closed list carrying nothing that disposes of
+funds.
+
+A consent is the opposite shape. It is bound to **one exchange and one exact percentage**, so it
+cannot settle at any other split — there is no discretion in it to delegate. That narrowness is what
+makes it safe to hold, and it is why it lives beside the proposal it agrees to, in `state/consents/`,
+rather than in a store of standing authorisations.
+
+It is still a bearer instrument: whoever holds it can settle at that split. So it is a secret, its
+directory is fixed in source under the one path this repository ignores, and it is discarded the
+moment it is spent. It cannot live on the exchange record — `src/exchanges.mjs` refuses to write a
+signature — nor on the case record, which every mediation round rewrites whole.
+
+### 9.2 · What settling refuses, and when
+
+Every refusal is decided from the record **before anything is signed**: an exchange already
+finalised, one with no dispute open, one that has been escalated, and a request naming no split at
+all. Each is a revert the protocol would give anyway, named here so a person reads a sentence rather
+than decodes one.
+
+⭐ **The consent is checked against the split being settled, never read for it.** The route takes
+the proposal's percentage from the same function that draws it on screen, so the buyer can only ever
+settle at the number they were shown, and a consent signed for one proposal cannot settle another.
+
+`buyerPercentBasisPoints` is the **buyer's** share, 0–10000. The one conversion lives in
+`src/proposal.mjs`; nothing else works it out.
+
+### 9.3 · The record follows the protocol, never the request
+
+`settle()` writes only once the protocol has confirmed, and it writes **the split the protocol
+recorded**, mapped through `outcomeFor()` — not the one that was asked for. A relayed
+meta-transaction that reverted returns through the path a successful one returns through, so the
+read-back is what proves anything happened.
+
+A confirmation that times out leaves the record untouched **and the consent unspent**: the
+transaction may yet have landed, the watchdog reconciles finalisation and outcome from chain truth
+on its next sweep, and a consent discarded here could not be produced again without the
+counterparty.
+
+### 9.4 · Arming, and declining
+
+The endpoint is armed by `BUYER_UI_ALLOW_SETTLE`, separately from `BUYER_UI_ALLOW_CONFIRM`. Both
+move money irreversibly and they are different acts — completing pays the seller in full and
+forfeits the dispute; settling splits a pot on a proposal both parties have seen — so an operator
+may want one without the other. An armed server connects to the chain at startup and refuses to
+start if it cannot, rather than failing on the first press. The guard in §8.2 is what establishes
+*who is calling*; this one is an operator arming the machine, and neither substitutes for the other.
+
+⚠️ **Declining is not a chain call, and is deliberately not a button.** A proposal is inert: it
+settles if the buyer accepts it and otherwise does not. If they never accept, the resolution window
+runs down and the watchdog escalates before it lapses, so the case reaches a person by the path that
+already exists. Wiring the control to that path would escalate on a press meaning *"not this
+number"* — skipping a rung of the ladder, irreversibly, and at the buyer's cost. The action is
+therefore drawn disabled with a reason that states what happens instead, on the same principle as
+the photograph control: an offer with no visible answer to it is worse than a disabled control that
+explains itself.
 
 **The interface must not pretend.** A settlement action that appears to succeed while nothing
-settled is the one failure this whole system exists to prevent.
+settled is the one failure this whole system exists to prevent, so every refusal reaches the buyer
+as *"that didn't go through"* and never as an ending.
 
 ## 10 · Replay
 
@@ -471,6 +538,7 @@ and no screen may derive a state from "the request I sent" rather than from what
 | `EXCHANGES_DIR` | `state/exchanges` | Shared with the watchdog and the scripts |
 | `EVENTS_DIR` | `fixtures/events` | Shared with the receiver |
 | `BUYER_UI_ALLOW_CONFIRM` | `false` | §8.1 |
+| `BUYER_UI_ALLOW_SETTLE` | `false` | §9.4 |
 
 The case store is **not** configurable. `scripts/mediate.mjs` reads `state/cases` and the listing
 fixtures at `fixtures/case/<exchangeId>.json` as fixed paths, and this view reads the same two. A
@@ -487,6 +555,8 @@ credentials, which is acceptable **only** because of that.
 | The vocabulary rule | The existing walk of `BUYER_STRINGS`, extended to assert the view model emits no string absent from it |
 | `moneyLine()` with a split | `outcome: "split"` with a percentage renders the amount, not "returned" |
 | `buyer-server.mjs` | Request-level, as the receiver is tested: routes, guards, malformed input |
-| `completion.mjs`, `resolution.mjs` | Called with a store and a stub; `settle()` asserts it throws until implemented |
+| `completion.mjs`, `resolution.mjs` | Called with a store and a stub, never the chain |
+| A consent's signature | Signed and recovered with no chain: the address comes back, and 20% is the buyer's 2000 rather than the seller's 8000 |
+| `settle()`'s refusals | Finalised, undisputed, escalated, no consent, and a consent at another split — each proven to refuse before the chain is reached |
 | The photograph write | Against the committed case file's **text**: the opening round plus the photograph reproduces it byte for byte, and §8.3's properties still hold on what the route wrote |
 | The screen itself | Reviewed by looking at it. No browser automation |

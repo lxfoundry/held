@@ -34,7 +34,15 @@ a.item .ending { font-size: 16px; color: var(--green-ink); margin-top: 2px; }
 .notice { font-size: 20px; line-height: 1.5; color: var(--quiet); margin-bottom: 20px; }
 .timeline { list-style: none; margin: 0 0 24px; padding: 0; font-size: 20px; color: var(--quiet); }
 .timeline li { padding: 8px 0; }
-.box { background: #fff; border: 1px solid var(--edge); border-radius: 22px; padding: 26px; }
+/* The one card on this screen, and the only block here that carried no
+   bottom margin: everything that can follow it — the evidence strip, the
+   notice, the buttons — sets margin-bottom and no margin-top, so the card
+   sat flush against the controls that answer it on both mediation screens.
+   22px is what .reasoning and .evidence inside it already use. */
+.box {
+  background: #fff; border: 1px solid var(--edge); border-radius: 22px;
+  padding: 26px; margin-bottom: 22px;
+}
 .amount { font-size: 46px; font-weight: 700; letter-spacing: -0.03em; margin-bottom: 8px; }
 .why { font-size: 20px; line-height: 1.5; color: var(--quiet); margin-bottom: 22px; }
 .why p { margin: 0 0 0.7em; }

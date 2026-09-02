@@ -18,19 +18,21 @@ export const ACTIONS = Object.freeze({
   DECLINE: "decline",
 });
 
-// ⭐ allowConfirm is the one operator setting this model takes. The operator's
-// choice becomes an action that is enabled, or one drawn disabled with a
-// neutral reason — never a reason for the client to draw something other than
-// what it is told. An action the model emits is an action the screen shows.
+// ⭐ allowConfirm and allowSettle are the two operator settings this model
+// takes. Both work the same way: the operator's choice becomes an action that
+// is enabled, or one drawn disabled with a neutral reason — never a reason for
+// the client to draw something other than what it is told. An action the model
+// emits is an action the screen shows.
 //
-// ⚠️ There used to be a second, allowPhoto, and adding a photograph was drawn
+// ⚠️ There used to be a third, allowPhoto, and adding a photograph was drawn
 // disabled unless the operator had named one in the page's URL. It gated the
 // wrong thing. *Which* photograph is attached is a branch of the demonstration
 // and remains the operator's — but it is a lookup in the rounds table, not a
 // question, so it has no bearing on whether the buyer may answer the
 // mediator at all. A permanently disabled primary control under a question
 // asking for evidence was an interface that could not be used as drawn.
-export function viewFor({ record, tracking, caseRecord = null, listing, photos = [], events = [], allowConfirm = false }) {
+export function viewFor({ record, tracking, caseRecord = null, listing, photos = [], events = [],
+  allowConfirm = false, allowSettle = false }) {
   const priceText = listing?.priceText ?? null;
   const currency = listing?.currency ?? "£";
 
@@ -69,7 +71,7 @@ export function viewFor({ record, tracking, caseRecord = null, listing, photos =
     // removed for that reason — the field was never the mistake, not drawing
     // it was.
     evidence: disputed && !settled ? evidenceFrom(photos, record.exchangeId) : null,
-    actions: actionsFor({ tracking, record, latest, allowConfirm }),
+    actions: actionsFor({ tracking, record, latest, allowConfirm, allowSettle }),
     // Copy for something the stores cannot know happened: the buyer pressed a
     // button and the request did not go through. It is carried on every model
     // so that public/held.js can say so without composing a sentence of its
@@ -185,6 +187,16 @@ function lastRound(caseRecord) {
   return rounds.length ? rounds[rounds.length - 1] ?? null : null;
 }
 
+// ⭐ The split currently on the buyer's screen, or null when the case is not at
+// a proposal. Exported because the settle route has to submit exactly the
+// number the screen showed, and working that out a second time — from the same
+// case record, by the same rule, in another module — is how the figure a buyer
+// accepted and the figure that settled would come to differ.
+export function proposedPercent(caseRecord) {
+  const latest = lastRound(caseRecord);
+  return latest?.status === "proposal" ? latest.buyerPercent : null;
+}
+
 // ⭐ Every field here is drawn, and the ids are deliberately not among them.
 // A photograph is located by its position in the case's own list, so nothing a
 // caller sends is ever resolved against the filesystem — src/buyer-server.mjs
@@ -230,7 +242,7 @@ function mediationFrom(latest, priceText, currency) {
 }
 
 
-function actionsFor({ tracking, record, latest, allowConfirm }) {
+function actionsFor({ tracking, record, latest, allowConfirm, allowSettle }) {
   if (record.finalisedAt != null || record.escalatedAt != null) return [];
 
   if (offersCompletion(tracking, record)) {
@@ -253,13 +265,18 @@ function actionsFor({ tracking, record, latest, allowConfirm }) {
 
   if (latest.status === "proposal") {
     return [
-      // ⚠️ Disabled and truthful. resolveDispute is not implemented, and an
-      // action that appears to succeed while nothing settled is the one failure
-      // this system exists to prevent.
+      // Armed exactly as completing is, and drawn either way: this splits the
+      // pot irreversibly, so whether the operator armed it is the operator's
+      // business and the buyer reads a neutral reason.
       { id: ACTIONS.SETTLE, label: BUYER_STRINGS.accept_proposal, primary: true,
-        enabled: false, reason: BUYER_STRINGS.settle_unavailable },
-      // ⚠️ Disabled and truthful, same reason: there is no route and no chain
-      // path behind declining, so it must not read as pressable.
+        enabled: allowSettle, reason: allowSettle ? null : BUYER_STRINGS.settle_unavailable },
+      // ⚠️ Disabled, and it stays disabled. Declining is not a chain call —
+      // the proposal is inert and simply does not settle — so there is nothing
+      // behind a button here, and wiring one to the only path that does exist
+      // would hand the case to a person on a press meaning "not this number".
+      // The reason says what happens instead; drawn rather than hidden,
+      // because an offer with no visible answer to it is worse than a disabled
+      // control that explains itself.
       { id: ACTIONS.DECLINE, label: BUYER_STRINGS.decline_proposal, primary: false,
         enabled: false, reason: BUYER_STRINGS.decline_unavailable },
     ];

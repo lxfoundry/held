@@ -264,8 +264,15 @@ On failure: retry once, then fail the case rather than present an ungrounded pro
 **The proposal is inert.** It is recorded and shown. It settles only when `resolveDispute` is called
 carrying the counterparty's signature over the `Resolution` struct.
 
-That requirement is the protocol's, not this system's, which is what makes it worth relying on. The
-mediator has no signer, no credential and no chain access:
+That requirement is the protocol's, not this system's, which is what makes it worth relying on: one
+party signs and the *counterparty* submits, so no arrangement of this code can settle a dispute on
+one party's say-so. A signature is held bound to one exchange and one exact percentage, and the
+submission is checked against the proposal the accepting party was shown — so a consent given for
+one proposal cannot settle another, and neither party can be settled at a number they never saw.
+Declining is the absence of an acceptance rather than an action: an unaccepted proposal simply does
+not settle, and the case reaches a human decider by the escalation path.
+
+The mediator has no signer, no credential and no chain access:
 
 ⭐ **The request that runs the mediator has no `tools` field at all.** The rule that no model-driven
 component may hold a tool that moves funds is therefore not a discipline anyone has to maintain — it
