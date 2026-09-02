@@ -105,10 +105,19 @@ if (dispute.exists) {
 }
 ok(`exchange ${exchangeId} is redeemed, undisputed and not finalised`);
 
+// ⭐ src/completion.mjs refuses to complete an exchange with no local record —
+// checked here too, and before anything else is printed: the panel below
+// would otherwise announce a payment that will not happen (execute mode), or
+// plan mode would point at a command that can only refuse.
+if (!exchanges.get(exchangeId)) {
+  console.error(`✗ exchange ${exchangeId} has no local record under ${exchanges.dir}`);
+  console.error("  completing refuses without one — check EXCHANGES_DIR points where this exchange was seeded");
+  process.exit(1);
+}
+
 // --- what completing it pays -------------------------------------------------
-// The price comes from the offer rather than from a local record, so it is the
-// number the protocol will actually move even if nothing local knows about this
-// exchange at all.
+// The price comes from the offer rather than from the local record, so it is
+// the number the protocol will actually move.
 const offerId = before.exchange.offerId.toString();
 const { offer } = await offerHandler.getOffer(offerId);
 const erc20 = new Contract(offer.exchangeToken, abis.ERC20ABI, provider);
@@ -120,25 +129,15 @@ info(`exchange         ${exchangeId}, from offer ${offerId}`);
 info(`redeemed         ${new Date(Number(before.voucher.redeemedDate) * MS).toISOString()}`);
 info(`pays the seller  ${priceText}, immediately and irreversibly`);
 info(`then discards    the pre-signed ${PERMITTED_ACTIONS.join(" and ")} authorisations`);
-if (!exchanges.get(exchangeId)) {
-  console.log(`⚠ no local record — nothing under ${exchanges.dir} names exchange ${exchangeId}`);
-}
-
-if (!execute) {
-  console.log("");
-  console.log("nothing was signed and nothing was submitted.");
-  console.log("Pay the seller — which cannot be undone — with:");
-  console.log(`  npm run confirm -- ${exchangeId} --execute`);
-  process.exit(0);
-}
 
 // --- sign and relay ----------------------------------------------------------
 // The rules — refuse a second completion, refuse one that would end an open
-// dispute, plan-and-stop, write the outcome — live in src/completion.mjs now,
-// so something other than a terminal can call them. What stays here is the
-// half that needs a signer, a provider and the ABI, and the diagnostics that
-// depend on exactly when a transaction stopped being merely submitted and
-// became confirmed — state complete() itself has no reason to know about.
+// dispute, plan-and-stop, discard the spent authorisations, write the outcome
+// — live in src/completion.mjs now, so something other than a terminal can
+// call them. complete() itself decides plan vs execute; what stays here is
+// the half that needs a signer, a provider and the ABI, and the diagnostics
+// that depend on exactly when a transaction stopped being merely submitted
+// and became confirmed — state complete() has no reason to know about.
 let tx;
 let receipt;
 let confirmed = false;
@@ -180,25 +179,27 @@ const chain = {
     );
     confirmed = true;
 
-    // ⭐ The exchange is over, so the two pre-signed authorisations are
-    // spent: they are deleted here rather than left lying around. A
-    // signature nobody needs is a liability with no remaining upside. (The
-    // watchdog also discards a finalised exchange's authorisations on its
-    // next sweep — this is the immediate version rather than waiting for
-    // one.)
-    //
-    // Deliberately before complete() writes the record update: a throw
-    // there must not leave spent bearer instruments on disk.
-    for (const action of PERMITTED_ACTIONS) {
-      authorisations.discard(exchangeId, action);
-    }
-
     return { finalisedAt: Number(finalised.exchange.finalizedDate) * MS, paid: priceText };
   },
 };
 
 try {
-  const result = await complete({ exchangeId, exchanges, chain, execute });
+  const result = await complete({ exchangeId, exchanges, authorisations, chain, execute });
+
+  // ⭐ complete() decides plan vs execute, not this script — this call
+  // happens whether or not --execute was passed, and chain.complete() above
+  // is only ever reached from inside complete() once it knows execute is
+  // true. Rendering off `result.planned` rather than re-deriving the same
+  // answer from the local `execute` flag is what keeps this branch reachable
+  // and correct, rather than a dead one two variables could silently drift.
+  if (result.planned) {
+    console.log("");
+    console.log("nothing was signed and nothing was submitted.");
+    console.log("Pay the seller — which cannot be undone — with:");
+    console.log(`  npm run confirm -- ${exchangeId} --execute`);
+    process.exit(0);
+  }
+
   ok(`exchange ${exchangeId} finalised at ${new Date(result.finalisedAt).toISOString()}`);
   info(`tx ${explorer(receipt.transactionHash)}`);
   info("authorisations discarded");
