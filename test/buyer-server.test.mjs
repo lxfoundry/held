@@ -38,7 +38,11 @@ const app = (over = {}) => createApp({
   ...over,
 });
 
-const call = (handler, method, url, body = null) =>
+// ⚠️ Every request carries headers, because handle() now reads two of them
+// before it routes anything: a browser always sends Host, and sends Origin on
+// every cross-origin request. The default here is what this machine's own page
+// sends; the guard tests below override it.
+const call = (handler, method, url, body = null, headers = {}) =>
   new Promise((resolve) => {
     const chunks = [];
     const res = {
@@ -47,7 +51,11 @@ const call = (handler, method, url, body = null) =>
       end(chunk) { if (chunk) chunks.push(chunk); resolve({ status: this.statusCode, body: chunks.join("") }); },
       write(chunk) { chunks.push(chunk); },
     };
-    const req = { method, url, on(event, fn) { if (event === "end") fn(); if (event === "data" && body) fn(body); } };
+    const req = {
+      method, url,
+      headers: { host: "127.0.0.1:3100", ...headers },
+      on(event, fn) { if (event === "end") fn(); if (event === "data" && body) fn(body); },
+    };
     handler(req, res);
   });
 
@@ -273,6 +281,84 @@ test("a non-error rejection from an action still answers, rather than hanging th
     "POST", "/api/purchases/241/complete"
   );
   assert.equal(res.status, 500);
+});
+
+// --- who is calling ----------------------------------------------------------
+// ⚠️ Loopback is not a security boundary: this port is reachable from every
+// page in this buyer's browser, and a POST with no body and no custom header
+// triggers no preflight, so CORS never intervenes — it hides the response, not
+// the request. Completing pays the seller and forfeits the dispute right, so
+// the one thing every guard below establishes is that the request came from
+// this view's own page.
+
+test("a POST carrying a foreign Origin is refused, and the action is never called", async () => {
+  let called = false;
+  const res = await call(
+    app({ allowConfirm: true, actions: { complete: async () => { called = true; return {}; } } }),
+    "POST", "/api/purchases/241/complete", null,
+    { origin: "https://an-unrelated-page.example" },
+  );
+  assert.equal(res.status, 403);
+  assert.equal(called, false, "an armed server must not pay a seller for another page");
+});
+
+test("a POST from the view's own page still completes", async () => {
+  for (const origin of ["http://127.0.0.1:3100", "http://localhost:3100"]) {
+    let called = false;
+    const res = await call(
+      app({ allowConfirm: true, actions: { complete: async () => { called = true; return {}; } } }),
+      "POST", "/api/purchases/241/complete", null,
+      { origin, host: origin.slice("http://".length) },
+    );
+    assert.equal(res.status, 200, `${origin} is this server's own page`);
+    assert.equal(called, true);
+  }
+});
+
+test("a sandboxed page's null Origin is a foreign origin, not an absent one", async () => {
+  let called = false;
+  const res = await call(
+    app({ allowConfirm: true, actions: { complete: async () => { called = true; return {}; } } }),
+    "POST", "/api/purchases/241/complete", null, { origin: "null" },
+  );
+  assert.equal(res.status, 403);
+  assert.equal(called, false);
+});
+
+test("a request whose Host is not loopback is refused, whatever it asks for", async () => {
+  // DNS rebinding: a name the attacker controls resolves to 127.0.0.1, so the
+  // request arrives here with their Host and no Origin at all.
+  const rebound = { host: "held.attacker.example:3100" };
+  assert.equal((await call(app(), "GET", "/api/purchases/241", null, rebound)).status, 403);
+  assert.equal((await call(app(), "GET", "/", null, rebound)).status, 403);
+
+  let called = false;
+  const res = await call(
+    app({ allowConfirm: true, actions: { complete: async () => { called = true; return {}; } } }),
+    "POST", "/api/purchases/241/complete", null, rebound,
+  );
+  assert.equal(res.status, 403);
+  assert.equal(called, false);
+});
+
+test("a request with no Host at all is refused rather than trusted", async () => {
+  const res = await call(app(), "GET", "/api/purchases/241", null, { host: undefined });
+  assert.equal(res.status, 403);
+});
+
+test("the refusal says who was refused, and never buyer copy", async () => {
+  const res = await call(app(), "GET", "/api/purchases/241", null, { host: "held.attacker.example" });
+  const body = JSON.parse(res.body);
+  assert.match(body.error, /loopback|its own page/i);
+});
+
+// Promoted minor 1: defence in depth on the one irreversible action. The entry
+// point wires `complete` into `actions` only when the operator armed the
+// server, so an unarmed one has no completion to reach even if the guard in
+// run() were ever bypassed — it answers 501 because there is nothing there.
+test("a server with no completion wired cannot complete, armed or not", async () => {
+  const armed = app({ allowConfirm: true, actions: { raise: async () => ({}) } });
+  assert.equal((await call(armed, "POST", "/api/purchases/241/complete")).status, 501);
 });
 
 test("anything else is 404", async () => {

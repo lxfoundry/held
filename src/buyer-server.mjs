@@ -34,7 +34,54 @@ const STATIC = {
   "/held.js": ["held.js", "text/javascript; charset=utf-8"],
 };
 
-export function createApp({ exchanges, trackers, cases, listings, actions, allowConfirm }) {
+// ⚠️ Loopback is not a security boundary. It is unreachable from another
+// machine, and that is the whole of what it buys: it is reachable from every
+// page open in this buyer's browser. A POST with no body and no custom header
+// triggers no preflight, so CORS never intervenes on the way out — CORS hides
+// the response, not the request. An armed server would therefore pay a seller,
+// irreversibly, for any page in any tab that guessed a small integer at a
+// documented port.
+//
+// src/receiver.mjs authenticates its caller too, for the opposite reason: it is
+// exposed to the internet, so anyone at all may reach it and the question is
+// *who*. Here nobody but this machine can reach it, and the question is *which
+// page* — so what has to be established is the origin, and the two files check
+// different things because they are defending against different callers.
+const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
+
+// The Host header is a string a caller controls, so it is taken apart by hand
+// rather than handed to a parser: "127.0.0.1:3100", "localhost", "[::1]:3100".
+function hostnameOf(host) {
+  if (typeof host !== "string" || host === "") return null;
+  if (host.startsWith("[")) {
+    const end = host.indexOf("]");
+    return end === -1 ? null : host.slice(0, end + 1).toLowerCase();
+  }
+  const colon = host.indexOf(":");
+  return (colon === -1 ? host : host.slice(0, colon)).toLowerCase();
+}
+
+export function createApp({ exchanges, trackers, cases, listings, actions, allowConfirm, port = 3100 }) {
+  // The two origins this view is ever served from — the same page, under
+  // either name a browser resolves to this loopback socket.
+  const ownOrigins = new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`]);
+
+  // Null when the request is this view's own page asking, and a diagnostic
+  // naming the caller when it is anything else. An absent Origin is not
+  // suspicious — browsers omit it on same-origin reads — but an absent or
+  // foreign Host is: HTTP/1.1 requires one, and a Host that is not loopback
+  // means the request was addressed to a name that merely resolves here,
+  // which is what DNS rebinding does.
+  function foreignCaller(req) {
+    const headers = req.headers ?? {};
+    const origin = headers.origin;
+    if (origin != null && origin !== "" && !ownOrigins.has(origin)) return `origin ${origin}`;
+    const hostname = hostnameOf(headers.host);
+    if (hostname == null) return "no Host header";
+    if (!LOOPBACK_HOSTNAMES.has(hostname)) return `host ${headers.host}`;
+    return null;
+  }
+
   const send = (res, status, body, type = "application/json") => {
     res.statusCode = status;
     res.setHeader("content-type", type);
@@ -160,7 +207,26 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
   // fails that request alone, and nothing a caller sends can end the process.
   return function handle(req, res) {
     try {
-      const path = new URL(req.url, "http://localhost").pathname;
+      // ⭐ Before anything is routed, and before any state is read or written:
+      // the buyer's own page, or nothing. See foreignCaller() above for why a
+      // loopback-only socket still needs this.
+      const foreign = foreignCaller(req);
+      if (foreign) {
+        console.error(`refused a request from ${foreign} — this server answers its own page only`);
+        return send(res, 403, { error: "this server answers only its own page on loopback" });
+      }
+
+      // ⚠️ new URL() here, where src/receiver.mjs's pathnameOf() deliberately
+      // refuses it — the two files reach opposite conclusions from the same
+      // fact. There, a throw inside the request listener would end a process
+      // exposed to the internet, and the base it would need comes from a
+      // header a remote caller controls. Here the base is this constant, so
+      // nothing a caller sends reaches the parser, and a throw on a malformed
+      // request target lands in this function's own try and fails that one
+      // request. The Host header above is read as a string for the same
+      // reason it is not parsed there.
+      const url = new URL(req.url, "http://localhost");
+      const path = url.pathname;
 
       const asset = STATIC[path];
       if (req.method === "GET" && asset) {
@@ -361,7 +427,14 @@ if (isEntryPoint) {
   // through the request path. Every action but photos ignores body — it is
   // the one action that carries anything beyond which exchange it is for.
   const actions = {
-    complete: ({ exchangeId }) => complete({ exchangeId, exchanges, authorisations, chain, execute: true }),
+    // ⭐ Wired only when the operator armed it. The guard in run() already
+    // refuses this route unarmed; omitting the callable as well means an
+    // unarmed server has no path to complete() at all — it answers 501,
+    // because there is nothing there — rather than one string comparison
+    // standing between a stray request and an irreversible payment.
+    ...(allowConfirm
+      ? { complete: ({ exchangeId }) => complete({ exchangeId, exchanges, authorisations, chain, execute: true }) }
+      : {}),
     raise: ({ exchangeId }) => raiseFor({ exchangeId, by: "buyer", exchanges, authorisations, relay, confirm }),
     photos: ({ exchangeId, body }) => caseInput.addPhoto(exchangeId, body.photo),
     // buyerPercent is unused by settle() today — it throws unconditionally
@@ -370,7 +443,9 @@ if (isEntryPoint) {
     settle: ({ exchangeId }) => settle({ exchangeId, buyerPercent: null }),
   };
 
-  const app = createApp({ exchanges, trackers, cases, listings, actions, allowConfirm });
+  // ⭐ port, because the guard in createApp needs to recognise this server's
+  // own origin — the page is served from exactly this socket.
+  const app = createApp({ exchanges, trackers, cases, listings, actions, allowConfirm, port });
 
   const server = createServer(app);
   server.listen(port, HOST, () => {

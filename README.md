@@ -288,6 +288,21 @@ credential. Loopback-only is what makes holding them here acceptable, and that o
 load-bearing — if this process ever needed to answer a socket other than loopback, that would be a
 different design, not a configuration change.
 
+### It answers its own page, and nothing else
+
+Loopback keeps other machines out; it does not keep other *pages* out. This port is reachable from
+every tab in the browser on this machine, and a `POST` with no body and no custom header triggers no
+preflight, so CORS never intervenes — CORS hides the response, not the request. Completing an
+exchange is irreversible, so before any route runs the server refuses:
+
+- any request carrying an `Origin` other than `http://127.0.0.1:<port>` or
+  `http://localhost:<port>`, and
+- any request whose `Host` is absent or names something other than loopback — which is what a DNS
+  rebinding attempt looks like from in here.
+
+Both answer `403`. Reaching this server with `curl` therefore means sending a loopback `Host`, which
+`curl http://127.0.0.1:3100/...` already does.
+
 ### `BUYER_UI_ALLOW_CONFIRM`
 
 Completing an exchange pays the seller immediately, cannot be undone, and forfeits the ability to

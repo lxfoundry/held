@@ -253,6 +253,26 @@ So the endpoint refuses unless `BUYER_UI_ALLOW_CONFIRM=true`, which is the same 
 confirmation dialogue, no second tap, no warning about irreversibility. Completing is an ordinary,
 optional convenience and the interface must present it as one — see §5.
 
+### 8.2 · Every request must come from this view's own page
+
+Loopback keeps other machines out. It does not keep other *pages* out: this port is reachable from
+every tab in the buyer's browser, and a `POST` with no body and no non-safelisted header triggers no
+preflight, so CORS never intervenes — **CORS hides the response, not the request.** A server that
+routed on the path alone would complete an exchange for any page that guessed a small integer at a
+documented port, and completing is irreversible.
+
+So, before any route runs:
+
+- a request carrying an `Origin` header other than `http://127.0.0.1:<port>` or
+  `http://localhost:<port>` is refused;
+- a request whose `Host` is absent, or names anything but loopback, is refused — which also closes
+  DNS rebinding, where a name the attacker controls resolves to `127.0.0.1` and the request arrives
+  with their `Host` and no `Origin` at all.
+
+Both answer `403` with an operator-facing body. The buyer's own page sends both headers correctly
+and nothing else can. This is the check that establishes *who is calling*; §8.1's is an operator
+arming the machine, and neither substitutes for the other.
+
 ## 9 · The settlement seam
 
 `resolveDispute` is not implemented anywhere in this repository. `src/resolution.mjs` exists to
