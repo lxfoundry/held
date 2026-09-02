@@ -96,6 +96,22 @@ export function roundAdding(name) {
   });
 }
 
+// The photographs that can be added to a case standing at the opening round, in
+// the order the rounds declare them. The first is the branch taken when nobody
+// names one.
+//
+// ⭐ Derived from ROUNDS through roundAdding, for the reason roundAdding itself
+// gives: a second table would be a second place the same mapping is stated, and
+// one that disagreed would fail silently. Adding a branch to ROUNDS puts it on
+// this list; it never has to be added twice.
+//
+// ⚠️ The order is the declaration order of ROUNDS, so which branch is the
+// default is decided by where it sits in that table and nowhere else. Today
+// that is the intact carton, and the crushed one is reached by naming it.
+export function addablePhotos() {
+  return Object.keys(PHOTOS).filter((name) => roundAdding(name) !== undefined);
+}
+
 // Returns the fixture text with its photographs set to `round`. Throws rather
 // than reporting, so the caller owns how a failure reads.
 export function applyPhotos(text, round) {

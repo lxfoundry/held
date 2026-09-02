@@ -9,8 +9,8 @@
 // and so is the design.
 
 import { createServer } from "node:http";
-import { readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { readFileSync, statSync } from "node:fs";
+import { extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { viewFor } from "./buyer-view.mjs";
 import { NoCaseInputError, UnknownPhotoError } from "./case-input.mjs";
@@ -26,6 +26,20 @@ const MAX_PHOTO_BODY_BYTES = 4 * 1024;
 // environment or a flag: the wallet credentials this process holds are safe
 // only while it never answers a socket other than loopback.
 const HOST = "127.0.0.1";
+
+// ⚠️ An allow-list, not a lookup. A photograph is served only if its extension
+// is on this list, so a case file that named a .js or a .env — by edit or by
+// accident — resolves to no content type and is refused rather than served.
+const PHOTO_TYPES = {
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+};
+
+// The one directory a photograph may be read from. Paths in a case file are
+// repo-root-relative, and this is what every resolved one is checked against
+// before a single byte is read — see the photo route in handle() below.
+const PHOTOS_DIR = join(ROOT, "fixtures/case", "photos");
 
 const STATIC = {
   "/": ["index.html", "text/html; charset=utf-8"],
@@ -93,13 +107,12 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
   // server ran — which buries every other diagnostic in this file.
   const missingListings = new Set();
 
-  // ⭐ allowPhoto, not a photo id: whether a photograph is on offer is
-  // something the buyer's model states, which photograph it is never is. The
-  // page carries the operator's choice in its own URL and forwards it here, so
-  // the model — not public/held.js — decides whether that action is drawn
-  // enabled. The id itself travels in the photos request body, and stops
-  // there.
-  function modelFor(id, allowPhoto = false) {
+  // ⭐ No photograph reaches this. Which one an operator has selected is a
+  // branch of the demonstration, settled in src/case-input.mjs when the action
+  // runs — it has no bearing on what the buyer is shown, so the model is the
+  // same whether or not one was named. The id travels in the photos request
+  // body, and stops there.
+  function modelFor(id) {
     const record = exchanges.get(id);
     if (!record) return null;
     const input = listings.read(id);
@@ -122,9 +135,13 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
       // field and viewFor already defaults one — inventing a key here would
       // be a second place that decision could be made.
       listing: input.listing,
+      // ⭐ The evidence already on file, so the buyer can see what they have
+      // sent. Only the count reaches the model as copy and only the position
+      // reaches it as a locator — the paths stay here, and the photo route
+      // below is the only thing that ever resolves one.
+      photos: input.photos ?? [],
       events: snapshot?.events ?? [],
       allowConfirm,
-      allowPhoto,
       allowSettle,
     });
   }
@@ -169,7 +186,7 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
   // parties have seen.
   const ARMED_BY = { complete: "BUYER_UI_ALLOW_CONFIRM", settle: "BUYER_UI_ALLOW_SETTLE" };
 
-  async function run(res, id, name, req, allowPhoto) {
+  async function run(res, id, name, req) {
     const armed = { complete: allowConfirm, settle: allowSettle };
     if (name in ARMED_BY && !armed[name]) {
       console.error(`refusing to ${name} exchange ${id}: ${ARMED_BY[name]} is not set`);
@@ -205,9 +222,14 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
         console.error(`photos body for exchange ${id} is not JSON`);
         return send(res, 400, { error: "body must be JSON" });
       }
-      if (typeof body?.photo !== "string" || body.photo === "") {
-        console.error(`photos body for exchange ${id} has no "photo" id`);
-        return send(res, 400, { error: 'body must include a "photo" id' });
+      // ⭐ Optional, and absent is the ordinary case: the buyer presses one
+      // button and src/case-input.mjs takes the first photograph the rounds
+      // declare. A "photo" key that is present must still be a non-empty
+      // string, so a caller sending one by mistake is told rather than
+      // silently given the default.
+      if (body?.photo !== undefined && (typeof body.photo !== "string" || body.photo === "")) {
+        console.error(`photos body for exchange ${id} has a "photo" that is not a non-empty string`);
+        return send(res, 400, { error: '"photo" must be a non-empty string when given' });
       }
     }
 
@@ -242,7 +264,7 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
     // poll reconciles from the stores, as everywhere else here.
     let model = null;
     try {
-      model = modelFor(id, allowPhoto);
+      model = modelFor(id);
     } catch (err) {
       console.error(`${name} succeeded for exchange ${id}, but the view could not be rendered: ${err.message}`);
     }
@@ -273,9 +295,6 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
       // reason it is not parsed there.
       const url = new URL(req.url, "http://localhost");
       const path = url.pathname;
-      // Whether a photograph is on offer, never which one — see modelFor().
-      const allowPhoto = Boolean(url.searchParams.get("photo"));
-
       const asset = STATIC[path];
       if (req.method === "GET" && asset) {
         return send(res, 200, readFileSync(join(ROOT, "public", asset[0]), "utf8"), asset[1]);
@@ -295,7 +314,7 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
         // handles — and .filter(Boolean) drops it from what is sent.
         const models = records.map((r) => {
           try {
-            return modelFor(r.exchangeId, allowPhoto);
+            return modelFor(r.exchangeId);
           } catch (err) {
             console.error(`could not render exchange ${r.exchangeId}: ${err.message}`);
             return null;
@@ -312,11 +331,73 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
         // catch as a 500, and the client blanked the screen on it.
         let model = null;
         try {
-          model = modelFor(one[1], allowPhoto);
+          model = modelFor(one[1]);
         } catch (err) {
           console.error(`could not render exchange ${one[1]}: ${err.message}`);
         }
         return model ? send(res, 200, model) : send(res, 404, { error: "unknown purchase" });
+      }
+
+      // ⭐ A photograph the buyer has already sent, addressed by its position
+      // in that case's own list — never by name and never by path. Four things
+      // stand between a request and a file read, in this order: the route
+      // matches digits only, the index must be inside the list this case
+      // actually holds, the path it resolves to must sit directly inside
+      // PHOTOS_DIR, and its extension must be on PHOTO_TYPES. The first three
+      // make a traversal unrepresentable rather than merely rejected — there is
+      // no caller-supplied string anywhere in the path that gets resolved.
+      const photo = /^\/api\/purchases\/(\d+)\/photos\/(\d+)$/.exec(path);
+      if (req.method === "GET" && photo) {
+        const [, id, position] = photo;
+        let entry = null;
+        try {
+          entry = (listings.read(id)?.photos ?? [])[Number(position)] ?? null;
+        } catch (err) {
+          console.error(`could not read the case file for exchange ${id}: ${err.message}`);
+        }
+        // An index past the end is a photograph that does not exist, which is
+        // an absence rather than a failure — the same 404 an unknown purchase
+        // gets, for the same reason.
+        if (!entry?.path) return send(res, 404, { error: "no such photograph" });
+
+        const resolved = resolve(ROOT, entry.path);
+        const type = PHOTO_TYPES[extname(resolved).toLowerCase()];
+        if (!resolved.startsWith(PHOTOS_DIR + sep) || !type) {
+          // ⚠️ Logged as the operator diagnostic it is: a case file naming a
+          // path outside the photographs directory is either an edit that went
+          // wrong or an attempt, and both are worth seeing. The caller is told
+          // only that there is nothing there.
+          console.error(`refusing to serve ${entry.path} for exchange ${id}: outside ${PHOTOS_DIR}, or not an image`);
+          return send(res, 404, { error: "no such photograph" });
+        }
+
+        let bytes;
+        let stat;
+        try {
+          stat = statSync(resolved);
+          bytes = readFileSync(resolved);
+        } catch (err) {
+          console.error(`could not read ${entry.path} for exchange ${id}: ${err.message}`);
+          return send(res, 404, { error: "no such photograph" });
+        }
+
+        // ⚠️ This URL names a position, not a file, and the file at a position
+        // changes the moment the buyer adds a photograph — so it must never be
+        // cached outright. Revalidation with a tag from the file's own size and
+        // mtime gives the browser a 304 while nothing has moved, which is what
+        // keeps the page from re-fetching both thumbnails on every two-second
+        // poll, and a fresh body the instant one does.
+        const etag = `"${stat.size.toString(16)}-${Math.trunc(stat.mtimeMs).toString(16)}"`;
+        res.setHeader("cache-control", "no-cache");
+        res.setHeader("etag", etag);
+        if (req.headers?.["if-none-match"] === etag) {
+          res.statusCode = 304;
+          return res.end();
+        }
+        res.statusCode = 200;
+        res.setHeader("content-type", type);
+        res.setHeader("content-length", bytes.length);
+        return res.end(bytes);
       }
 
       const action = /^\/api\/purchases\/(\d+)\/(complete|raise|photos|settle)$/.exec(path);
@@ -327,7 +408,7 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
         // (err.message throwing on null/undefined) and a send() that fails
         // once headers are already out — reject silently, the client's
         // 2-second poll never gets a response, and sockets accumulate.
-        return run(res, action[1], action[2], req, allowPhoto).catch(() =>
+        return run(res, action[1], action[2], req).catch(() =>
           send(res, 500, { error: "the request could not be handled" })
         );
       }
@@ -574,7 +655,7 @@ if (isEntryPoint) {
         }
       : {}),
     raise: ({ exchangeId }) => raiseFor({ exchangeId, by: "buyer", exchanges, authorisations, relay, confirm }),
-    photos: ({ exchangeId, body }) => caseInput.addPhoto(exchangeId, body.photo),
+    photos: ({ exchangeId, body }) => caseInput.addPhoto(exchangeId, body?.photo ?? null),
 
     // ⭐ Wired only when the operator armed it, for the reason completing is:
     // an unarmed server has no path to settle() at all.

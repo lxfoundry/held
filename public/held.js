@@ -8,13 +8,11 @@ const id = params.get("purchase");
 // case to show, an operator's decision and not a buyer's. The model never says
 // which one, and this file never invents one.
 //
-// It is forwarded to the API rather than acted on here: the model decides
-// whether that action is on offer, this file draws whatever the model says.
-// Deciding it here meant an action the model reported as enabled was silently
-// dropped, leaving a buyer reading the mediator's question with no way to
-// answer it.
+// Absent is the ordinary case, and the button works without it: the server
+// takes the first photograph the rounds declare. It is forwarded on the press
+// alone, because it changes what that press attaches and nothing about what is
+// drawn — the model is identical either way.
 const photoId = params.get("photo");
-const photoQuery = photoId ? `?photo=${encodeURIComponent(photoId)}` : "";
 
 const app = document.getElementById("app");
 
@@ -49,7 +47,7 @@ async function tick() {
   // is at most two seconds away and reconciles from the stores.
   let res;
   try {
-    res = await fetch(id ? `/api/purchases/${id}${photoQuery}` : `/api/purchases${photoQuery}`);
+    res = await fetch(id ? `/api/purchases/${id}` : "/api/purchases");
   } catch (err) {
     console.error(`could not reach the server: ${err.message}`);
     return;
@@ -80,11 +78,14 @@ async function act(action) {
   setWorking(action);
   const opts =
     action === "photos"
-      ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ photo: photoId }) }
+      // An object either way, never an empty body: the route parses what it is
+      // sent, and "{}" is how "no photograph named, take the default" is said.
+      ? { method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify(photoId ? { photo: photoId } : {}) }
       : { method: "POST" };
   let res;
   try {
-    res = await fetch(`/api/purchases/${id}/${action}${photoQuery}`, opts);
+    res = await fetch(`/api/purchases/${id}/${action}`, opts);
   } catch (err) {
     // The guard must not leak on a network failure either — that would
     // disable this button for good, which is worse than the pre-guard
@@ -142,8 +143,20 @@ function renderList(models) {
     link.appendChild(thumb);
 
     const text = document.createElement("div");
-    text.appendChild(textEl("div", m.item.title));
-    text.appendChild(textEl("div", m.money.text));
+    text.appendChild(textEl("div", m.item.title, "what"));
+    // ⭐ The parcel line, not the money line. "Your money is held" is true of
+    // every purchase that has not finished, so a list of them said the same
+    // sentence over and over and distinguished nothing. Where the parcel has
+    // got to is the one thing that differs between two open purchases.
+    text.appendChild(textEl("div", m.parcel.text, "where"));
+    // ...and the money line only once it says something the parcel line
+    // cannot. A finished purchase reads "It arrived" whether the seller was
+    // paid, the money came back or they split it, so the ending is drawn
+    // beneath it — and only then, because before that it is the repetition
+    // this change exists to remove. `held` is the line the model renders in
+    // the absence of an outcome, so it is exactly the test for "nothing to
+    // add yet".
+    if (m.money.tone !== "held") text.appendChild(textEl("div", m.money.text, "ending"));
     link.appendChild(text);
 
     app.appendChild(link);
@@ -169,6 +182,11 @@ function renderPurchase(model) {
     const box = mediationBlock(model.mediation);
     if (box) app.appendChild(box);
   }
+
+  // ⭐ What the buyer has already sent, beneath the mediator's question and
+  // above the button that adds to it — so pressing "Add a photo" visibly
+  // changes the thing it is about. Drawn only when the model carries it.
+  if (model.evidence) app.appendChild(evidenceBlock(model.evidence));
 
   // The notice sits above the buttons, not below and not per-button.
   if (model.notice) app.appendChild(textEl("div", model.notice, "notice"));
@@ -224,12 +242,12 @@ function mediationBlock(mediation) {
 
   if (mediation.proposal) {
     box.appendChild(textEl("div", mediation.proposal.refund, "amount"));
-    box.appendChild(textEl("div", mediation.proposal.reasoning, "why"));
+    box.appendChild(prose(mediation.proposal.reasoning, "reasoning"));
     return box;
   }
 
   if (mediation.question) {
-    box.appendChild(textEl("div", mediation.question, "why"));
+    box.appendChild(prose(mediation.question, "why"));
     return box;
   }
 
@@ -237,6 +255,33 @@ function mediationBlock(mediation) {
   // proposal — nothing to show, so nothing is drawn. An empty box would be
   // the same mistake a drawn-but-empty timeline would be.
   return null;
+}
+
+// ⚠️ The count is the model's sentence, not one composed here — "1 photo" and
+// "2 photos" are two strings in BUYER_STRINGS and this file picks neither. The
+// alt text is the model's too, for the same reason.
+//
+// Each src names a position in the case's own list of photographs, so the
+// browser asks for "the first photograph on this case" and the server decides
+// which file that is. Nothing here ever holds a path.
+function evidenceBlock(evidence) {
+  const box = document.createElement("div");
+  box.className = "evidence";
+  box.appendChild(textEl("div", evidence.summary, "sent"));
+
+  const strip = document.createElement("div");
+  strip.className = "strip";
+  for (const src of evidence.photos) {
+    const img = document.createElement("img");
+    img.src = src;
+    img.alt = evidence.alt;
+    // A photograph that cannot be loaded leaves its own gap rather than a
+    // broken-image icon, which reads as a bug in the product.
+    img.addEventListener("error", () => img.remove());
+    strip.appendChild(img);
+  }
+  box.appendChild(strip);
+  return box;
 }
 
 function actionsBlock(actions) {
@@ -255,6 +300,25 @@ function actionsBlock(actions) {
     // A disabled action renders greyed with its reason beneath it in small
     // type — an enabled action never carries one.
     if (a.reason) wrap.appendChild(textEl("div", a.reason, "reason"));
+  }
+  return wrap;
+}
+
+// ⚠️ One element per paragraph, because the model writes in them and
+// textContent does not. The mediator's reasoning arrives as four paragraphs
+// separated by blank lines; set as the text of a single div, every one of those
+// breaks collapsed into a space and two thousand characters of argument became
+// one unbroken block — the whole of it, correctly, and unreadable.
+//
+// This composes no copy. It splits on the blank lines the text already has and
+// draws what is between them; a text with none is one paragraph, which is what
+// the mediator's question usually is.
+function prose(text, className) {
+  const wrap = document.createElement("div");
+  wrap.className = className;
+  for (const para of String(text).split(/\n\s*\n/)) {
+    const trimmed = para.trim();
+    if (trimmed) wrap.appendChild(textEl("p", trimmed));
   }
   return wrap;
 }

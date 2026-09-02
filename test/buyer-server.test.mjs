@@ -50,7 +50,14 @@ const call = (handler, method, url, body = null, headers = {}) =>
     const res = {
       statusCode: 200, headers: {},
       setHeader(k, v) { this.headers[k] = v; },
-      end(chunk) { if (chunk) chunks.push(chunk); resolve({ status: this.statusCode, body: chunks.join("") }); },
+      end(chunk) {
+        if (chunk) chunks.push(chunk);
+        // ⚠️ Kept as bytes as well as text: the photograph route answers with
+        // a Buffer, and joining those as strings would decode JPEG bytes as
+        // UTF-8 and compare equal to nothing.
+        const bytes = Buffer.concat(chunks.map((c) => (Buffer.isBuffer(c) ? c : Buffer.from(String(c)))));
+        resolve({ status: this.statusCode, body: bytes.toString("utf8"), bytes, headers: this.headers });
+      },
       write(chunk) { chunks.push(chunk); },
     };
     const req = {
@@ -198,13 +205,30 @@ test("a non-JSON photos body is 400, and the action is never called", async () =
   assert.equal(called, false);
 });
 
-test("a photos body missing the photo key is 400, and the action is never called", async () => {
-  let called = false;
+test("a photos body naming no photograph runs the action, which takes the default", async () => {
+  // ⭐ The ordinary press. The buyer names nothing, so the action is called
+  // with nothing and src/case-input.mjs takes the first photograph the rounds
+  // declare — the branch is a lookup, never a question put to the buyer.
+  let named;
   const res = await call(
-    app({ actions: { photos: async () => { called = true; return {}; } } }),
-    "POST", "/api/purchases/241/photos", JSON.stringify({ nope: true }),
+    app({ actions: { photos: async ({ body }) => { named = body?.photo ?? null; return {}; } } }),
+    "POST", "/api/purchases/241/photos", JSON.stringify({}),
   );
-  assert.equal(res.status, 400);
+  assert.equal(res.status, 200);
+  assert.equal(named, null);
+});
+
+test("a photos body whose photo is present but unusable is 400, and the action is never called", async () => {
+  // Absent means "take the default"; present-but-empty is a caller that meant
+  // to name one and did not, and is told so rather than quietly given it.
+  let called = false;
+  for (const bad of [{ photo: "" }, { photo: 7 }, { photo: null }]) {
+    const res = await call(
+      app({ actions: { photos: async () => { called = true; return {}; } } }),
+      "POST", "/api/purchases/241/photos", JSON.stringify(bad),
+    );
+    assert.equal(res.status, 400, JSON.stringify(bad));
+  }
   assert.equal(called, false);
 });
 
@@ -410,24 +434,28 @@ const inMediation = {
   exchanges: { get: () => ({ ...record, disputeRaisedAt: 1, disputeRaisedBy: "buyer" }), all: () => [record] },
   cases: {
     read: () => ({ exchangeId: "241", rounds: [{ status: "needs_evidence",
-      requests: [{ to: "buyer", asks: "Can you photograph the outer shipping carton?" }] }] }),
+      requests: [{ whoCanProvide: "buyer", what: "Can you photograph the outer shipping carton?" }] }] }),
   },
 };
 
-test("with no photograph named, the photo action is drawn disabled", async () => {
+test("the photo action is drawn enabled with no photograph named", async () => {
+  // ⚠️ This used to be drawn disabled unless the operator had put a photograph
+  // in the page's URL — a primary control under a question asking for
+  // evidence, permanently unusable as drawn. Which photograph is attached is
+  // still the operator's, but it is settled behind the action.
   const res = await call(app(inMediation), "GET", "/api/purchases/241");
   const photo = JSON.parse(res.body).actions.find((a) => a.id === "photos");
-  assert.equal(photo.enabled, false);
-  assert.ok(photo.reason, "a disabled action must say why");
-});
-
-test("a photograph named in the request enables the action, and never names it in the model", async () => {
-  const res = await call(app(inMediation), "GET", "/api/purchases/241?photo=carton-crushed");
-  const model = JSON.parse(res.body);
-  const photo = model.actions.find((a) => a.id === "photos");
   assert.equal(photo.enabled, true);
   assert.equal(photo.reason, null);
-  assert.ok(!JSON.stringify(model).includes("carton-crushed"), "the branch choice is not the buyer's");
+});
+
+test("naming a photograph changes nothing the buyer is shown", async () => {
+  // The branch is the operator's and never reaches the screen, so the model
+  // must be identical with and without it — byte for byte.
+  const plain = await call(app(inMediation), "GET", "/api/purchases/241");
+  const named = await call(app(inMediation), "GET", "/api/purchases/241?photo=carton-crushed");
+  assert.equal(named.body, plain.body);
+  assert.ok(!named.body.includes("carton-crushed"), "the branch choice is not the buyer's");
 });
 
 // --- who is calling ----------------------------------------------------------
@@ -513,3 +541,53 @@ test("anything else is 404", async () => {
   assert.equal((await call(app(), "POST", "/api/purchases/241/pay")).status, 404);
 });
 
+// --- photographs the buyer has already sent ---------------------------------
+// ⭐ Addressed by position in the case's own list. Nothing a caller sends is
+// resolved against the filesystem, so these assert an absence of ways in as
+// much as they assert the happy path.
+
+const withPhotos = (photos) => ({ listings: { read: () => ({ listing, photos }) } });
+const INNER = "fixtures/case/photos/inner.jpg";
+
+test("a photograph on the case is served by its position, as an image", async () => {
+  const res = await call(app(withPhotos([{ id: "inner", path: INNER }])), "GET", "/api/purchases/241/photos/0");
+  assert.equal(res.status, 200);
+  assert.equal(res.headers["content-type"], "image/jpeg");
+  assert.deepEqual(res.bytes, readFileSync(join(ROOT, INNER)));
+});
+
+test("a position past the end of the list is nothing, not a failure", async () => {
+  const res = await call(app(withPhotos([{ id: "inner", path: INNER }])), "GET", "/api/purchases/241/photos/1");
+  assert.equal(res.status, 404);
+});
+
+test("a case file naming a path outside the photographs directory is refused", async () => {
+  // Not reachable from a request — the position is all a caller controls — but
+  // a case file is edited by hand, and the check is what makes that safe.
+  const res = await call(app(withPhotos([{ id: "x", path: "../../package.json" }])), "GET", "/api/purchases/241/photos/0");
+  assert.equal(res.status, 404);
+});
+
+test("a file inside the directory that is not an image is refused", async () => {
+  const res = await call(app(withPhotos([{ id: "x", path: "fixtures/case/photos/notes.txt" }])), "GET", "/api/purchases/241/photos/0");
+  assert.equal(res.status, 404);
+});
+
+test("a photograph that has not moved answers 304, so a two-second poll does not refetch it", async () => {
+  const handler = app(withPhotos([{ id: "inner", path: INNER }]));
+  const first = await call(handler, "GET", "/api/purchases/241/photos/0");
+  const etag = first.headers.etag;
+  assert.ok(etag, "a served photograph must carry an entity tag");
+  const again = await call(handler, "GET", "/api/purchases/241/photos/0", null, { "if-none-match": etag });
+  assert.equal(again.status, 304);
+  assert.equal(again.bytes.length, 0);
+});
+
+test("the model locates photographs by position and never names a path", async () => {
+  const disputed = { exchanges: { get: () => ({ ...record, disputeRaisedAt: 1, disputeRaisedBy: "buyer" }), all: () => [record] } };
+  const res = await call(app({ ...disputed, ...withPhotos([{ id: "inner", path: INNER }, { id: "carton", path: "fixtures/case/photos/carton.jpg" }]) }), "GET", "/api/purchases/241");
+  const model = JSON.parse(res.body);
+  assert.deepEqual(model.evidence.photos, ["/api/purchases/241/photos/0", "/api/purchases/241/photos/1"]);
+  assert.equal(model.evidence.summary, "2 photos added");
+  assert.ok(!JSON.stringify(model).includes("fixtures/"), "no path may reach the model");
+});

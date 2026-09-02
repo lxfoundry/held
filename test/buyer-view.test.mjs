@@ -21,7 +21,7 @@ const tracking = (over = {}) => ({
 
 const view = (over = {}) =>
   viewFor({ record: record(), tracking: tracking(), caseRecord: null, listing,
-            events: [], allowConfirm: true, allowPhoto: true, allowSettle: true, ...over });
+            events: [], allowConfirm: true, allowSettle: true, ...over });
 
 // ⚠️ The shape scripts/mediate.mjs actually writes: a round is the model's
 // result with bundleHash beside it, flat, and src/clerk.mjs reads it that way
@@ -118,28 +118,31 @@ test("an evidence request becomes the question and the photo action", () => {
     tracking: tracking({ current: "delivered", delivered: true }),
     record: record({ disputeRaisedAt: 1, disputeRaisedBy: "buyer" }),
     caseRecord: { exchangeId: "241", rounds: [{ status: "needs_evidence",
-      requests: [{ to: "buyer", asks: "Can you photograph the outer shipping carton?" }] }] },
+      requests: [{ whoCanProvide: "buyer", what: "Can you photograph the outer shipping carton?" }] }] },
   });
   assert.equal(v.mediation.question, "Can you photograph the outer shipping carton?");
   assert.equal(v.actions.find((a) => a.id === ACTIONS.PHOTO).enabled, true);
 });
 
-// I-5: the client used to drop the photo action whenever the operator had not
-// named a photograph, while the model said it was enabled — so a buyer reading
-// "Can you photograph the outer shipping carton?" saw a question and no way to
-// answer it. Whether a photograph is on offer is an input to the model, like
-// the operator's arming of completion, and the client draws what it is told.
-test("with no photograph on offer the action is still drawn, disabled and truthful", () => {
-  const v = view({
-    tracking: tracking({ current: "delivered", delivered: true }),
+// ⚠️ This action takes no operator setting at all, and that is the fix to two
+// bugs in a row. First the client dropped it whenever no photograph was named,
+// so a buyer reading "Can you photograph the outer shipping carton?" saw a
+// question and no way to answer it. Then it was drawn disabled instead — still
+// a question with no usable answer, now with an excuse under it. Which
+// photograph is attached is a lookup in the rounds table and never a reason to
+// refuse the press.
+test("the photo action is enabled with no operator setting of any kind", () => {
+  const v = viewFor({
     record: record({ disputeRaisedAt: 1, disputeRaisedBy: "buyer" }),
+    tracking: tracking({ current: "delivered", delivered: true }),
     caseRecord: { exchangeId: "241", rounds: [{ status: "needs_evidence",
-      requests: [{ to: "buyer", asks: "Can you photograph the outer shipping carton?" }] }] },
-    allowPhoto: false,
+      requests: [{ whoCanProvide: "buyer", what: "Can you photograph the outer shipping carton?" }] }] },
+    listing,
+    events: [],
   });
   const photo = v.actions.find((a) => a.id === ACTIONS.PHOTO);
-  assert.equal(photo.enabled, false);
-  assert.equal(photo.reason, "Adding a photo isn't available right now");
+  assert.equal(photo.enabled, true);
+  assert.equal(photo.reason, null);
 });
 
 test("mediation carries nothing the screen does not draw", () => {
@@ -147,7 +150,7 @@ test("mediation carries nothing the screen does not draw", () => {
     tracking: tracking({ current: "delivered", delivered: true }),
     record: record({ disputeRaisedAt: 1, disputeRaisedBy: "buyer" }),
     caseRecord: { exchangeId: "241", rounds: [{ status: "needs_evidence",
-      requests: [{ to: "buyer", asks: "Can you photograph the outer shipping carton?" }] }] },
+      requests: [{ whoCanProvide: "buyer", what: "Can you photograph the outer shipping carton?" }] }] },
   });
   assert.deepEqual(Object.keys(v.mediation).sort(), ["proposal", "question"]);
 });
@@ -316,5 +319,64 @@ test("⭐ every string the view emits — labels and reasons alike — comes fro
       if (text == null) continue;
       assert.ok(known.some((k) => text.includes(k.trim())), `"${text}" is not built from BUYER_STRINGS`);
     }
+  }
+});
+
+// --- the evidence the buyer has already sent --------------------------------
+// ⭐ This block exists because "Add a photo" wrote a file nothing on screen
+// drew: the press answered 200, the store changed, and the model that came
+// back was identical to the one already rendered. These pin the field that
+// makes the press visible.
+
+const inDispute = { disputeRaisedAt: 1, disputeRaisedBy: "buyer" };
+const withPhotos = (photos, over = {}) =>
+  view({ record: record(inDispute), photos, ...over });
+
+test("one photograph reads as one, and more than one is counted", () => {
+  assert.equal(withPhotos([{ id: "inner" }]).evidence.summary, "1 photo added");
+  assert.equal(withPhotos([{ id: "inner" }, { id: "carton" }]).evidence.summary, "2 photos added");
+});
+
+test("each photograph is located by its position, and nothing else about it reaches the model", () => {
+  const evidence = withPhotos([{ id: "inner", path: "fixtures/case/photos/inner.jpg" }]).evidence;
+  assert.deepEqual(evidence.photos, ["/api/purchases/241/photos/0"]);
+  assert.equal(evidence.alt, "A photo you added");
+  assert.deepEqual(Object.keys(evidence).sort(), ["alt", "photos", "summary"]);
+  assert.ok(!JSON.stringify(evidence).includes("inner.jpg"), "a path must not reach the model");
+});
+
+test("no case, no evidence — and an empty list is not a block with nothing in it", () => {
+  assert.equal(view({ photos: [{ id: "inner" }] }).evidence, null, "not in dispute");
+  assert.equal(withPhotos([]).evidence, null, "in dispute with nothing sent");
+});
+
+test("evidence does not survive settlement, because the money line is the answer by then", () => {
+  const settled = view({
+    record: record({ ...inDispute, finalisedAt: 1, outcome: "split", buyerPercent: 20 }),
+    photos: [{ id: "inner" }],
+  });
+  assert.equal(settled.evidence, null);
+});
+
+// ⭐ The list of purchases draws the parcel line, and adds the money line only
+// when `tone` is not "held" — because "Your money is held" is true of every
+// unfinished purchase and distinguished none of them. So "held" is the tone of
+// every state that has not finished, and each ending has its own: that is what
+// the list branches on, and it is pinned here rather than left to the one
+// assertion `split` happened to have.
+test("only a finished purchase carries a tone other than held", () => {
+  const open = [
+    view(),
+    view({ tracking: tracking({ current: "delivered", delivered: true }) }),
+    view({ record: record({ disputeRaisedAt: 1, disputeRaisedBy: "buyer" }) }),
+    view({ record: record({ disputeRaisedAt: 1, disputeRaisedBy: "watchdog", escalatedAt: 2 }) }),
+    // An outcome the module does not recognise is not an ending either.
+    view({ record: record({ outcome: "something else" }) }),
+  ];
+  for (const v of open) assert.equal(v.money.tone, "held");
+
+  for (const [outcome, tone] of [["paid", "paid"], ["returned", "returned"], ["split", "split"]]) {
+    const v = view({ record: record({ finalisedAt: 1, outcome, buyerPercent: 20 }) });
+    assert.equal(v.money.tone, tone);
   }
 });
