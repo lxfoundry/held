@@ -68,6 +68,14 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
       console.error(`refusing to complete exchange ${id}: BUYER_UI_ALLOW_CONFIRM is not set`);
       return send(res, 403, { error: "BUYER_UI_ALLOW_CONFIRM is not set" });
     }
+    // ⚠️ Fix round 1, item 2: an unwired action and a broken server are
+    // different facts. Calling actions[name] unconditionally turns a route
+    // that simply isn't implemented yet (e.g. photos) into a TypeError
+    // laundered into a 500 below — this answers 501, the same honest "not
+    // built" NotBuiltError already gives settle().
+    if (typeof actions[name] !== "function") {
+      return send(res, 501, { error: `${name} is not implemented` });
+    }
     try {
       await actions[name]({ exchangeId: id });
       return send(res, 200, modelFor(id) ?? {});
@@ -98,7 +106,20 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
         } catch (err) {
           console.error(`could not list exchanges: ${err.message}`);
         }
-        return send(res, 200, records.map((r) => modelFor(r.exchangeId)).filter(Boolean));
+        // ⚠️ Fix round 1, item 1: one bad tracker snapshot or case file must
+        // not blank the whole list (spec §11). Each record is rendered inside
+        // its own try/catch — a throw here is logged and the record is
+        // omitted, exactly like the "no listing" case modelFor already
+        // handles — and .filter(Boolean) drops it from what is sent.
+        const models = records.map((r) => {
+          try {
+            return modelFor(r.exchangeId);
+          } catch (err) {
+            console.error(`could not render exchange ${r.exchangeId}: ${err.message}`);
+            return null;
+          }
+        });
+        return send(res, 200, models.filter(Boolean));
       }
 
       const one = /^\/api\/purchases\/(\d+)$/.exec(path);
@@ -108,7 +129,17 @@ export function createApp({ exchanges, trackers, cases, listings, actions, allow
       }
 
       const action = /^\/api\/purchases\/(\d+)\/(complete|raise|photos|settle)$/.exec(path);
-      if (req.method === "POST" && action) return run(res, action[1], action[2]);
+      if (req.method === "POST" && action) {
+        // ⚠️ Fix round 1, item 4: run() is async and handle() cannot await
+        // it, so its returned promise must be caught here. Uncaught, the two
+        // paths run() cannot protect itself against — a non-object rejection
+        // (err.message throwing on null/undefined) and a send() that fails
+        // once headers are already out — reject silently, the client's
+        // 2-second poll never gets a response, and sockets accumulate.
+        return run(res, action[1], action[2]).catch(() =>
+          send(res, 500, { error: "the request could not be handled" })
+        );
+      }
 
       return send(res, 404, { error: "not found" });
     } catch (err) {
@@ -184,6 +215,24 @@ if (isEntryPoint) {
       chainSingleton = { config, provider, coreSDK, exchangeHandler, disputeHandler };
     }
     return chainSingleton;
+  }
+
+  // ⚠️ Fix round 1, item 3: an armed server connects eagerly. Lazy connection
+  // is still right for an unarmed one — it keeps the no-.env property for a
+  // read-only session — but leaving it lazy while armed moves the failure to
+  // the worst possible moment: the first press of Confirm, mid-demo, as a
+  // 500. An armed server proves it can sign *before* anyone touches the
+  // button, and refuses to start at all rather than serve a broken one.
+  let chainStatus = "not connected (BUYER_UI_ALLOW_CONFIRM is not set)";
+  if (allowConfirm) {
+    try {
+      getChain();
+      chainStatus = "connected";
+    } catch (err) {
+      console.error(`✗ armed (BUYER_UI_ALLOW_CONFIRM=true) but could not connect to the chain: ${err.message}`);
+      console.error("  fix .env, or unset BUYER_UI_ALLOW_CONFIRM to serve the view read-only");
+      process.exit(1);
+    }
   }
 
   // Wired exactly as scripts/confirm-receipt.mjs: complete() decides plan vs
@@ -264,6 +313,7 @@ if (isEntryPoint) {
     console.log(`  exchanges → ${exchanges.dir}`);
     console.log(`  trackers  → ${trackers.dir}`);
     console.log(`  complete  → ${allowConfirm ? "armed" : "disabled (BUYER_UI_ALLOW_CONFIRM is not set)"}`);
+    console.log(`  chain     → ${chainStatus}`);
   });
 
   // Nothing a browser sends should end this process — the same discipline as

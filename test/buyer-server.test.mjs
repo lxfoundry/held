@@ -97,6 +97,51 @@ test("an unreadable record does not blank the list", async () => {
   assert.deepEqual(JSON.parse(res.body), []);
 });
 
+// Fix round 1, item 1: exchanges.all() throwing is one failure mode (covered
+// above); a single record's own tracker or case read throwing is another, and
+// spec §11 requires the same outcome — that purchase is omitted, the rest of
+// the list survives.
+test("a bad tracker snapshot for one purchase doesn't blank the whole list", async () => {
+  const good = { ...record, exchangeId: "241", trackerId: "t1" };
+  const bad = { ...record, exchangeId: "999", trackerId: "corrupt" };
+  const res = await call(
+    app({
+      exchanges: { get: (id) => (id === "241" ? good : bad), all: () => [good, bad] },
+      trackers: {
+        read: (trackerId) => {
+          if (trackerId === "corrupt") throw new Error("snapshot exists but could not be read");
+          return { state: { current: "delivered", delivered: true }, events: [] };
+        },
+      },
+    }),
+    "GET", "/api/purchases"
+  );
+  assert.equal(res.status, 200);
+  const list = JSON.parse(res.body);
+  assert.equal(list.length, 1, "the one good record must still be rendered");
+  assert.equal(list[0].exchangeId, "241");
+});
+
+// Fix round 1, item 2: an action nobody has wired (photos, today) must not
+// look like a broken server. actions.photos is absent from the fixture, same
+// as in the real entry point.
+test("an unwired action answers 501, not 500", async () => {
+  const res = await call(app(), "POST", "/api/purchases/241/photos");
+  assert.equal(res.status, 501);
+});
+
+// Fix round 1, item 4: run()'s promise is never awaited by handle(), so a
+// rejection run() cannot itself turn into a response — a non-Error thrown
+// value makes `err.message` throw a second time inside the catch block —
+// must still resolve the request rather than leave the poll hanging.
+test("a non-error rejection from an action still answers, rather than hanging the request", async () => {
+  const res = await call(
+    app({ allowConfirm: true, actions: { complete: async () => { throw null; } } }),
+    "POST", "/api/purchases/241/complete"
+  );
+  assert.equal(res.status, 500);
+});
+
 test("anything else is 404", async () => {
   assert.equal((await call(app(), "GET", "/api/nope")).status, 404);
   assert.equal((await call(app(), "POST", "/api/purchases/241/pay")).status, 404);
