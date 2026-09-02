@@ -4,3 +4,10 @@
 *.sh text eol=lf
 docker-entrypoint.sh text eol=lf
 Dockerfile text eol=lf
+
+# The case fixtures are edited by a text replacement over one region, so that
+# round 1 and round 2 are exact inverses and a reset leaves no diff. That holds
+# only while the file's endings are the ones the replacement inserts — a CRLF
+# checkout would round-trip to mixed endings, and the byte-for-byte property
+# test/case-fixture.test.mjs asserts would fail on the clone rather than in CI.
+fixtures/case/*.json text eol=lf
