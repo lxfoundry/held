@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildRequest, callModel, MEDIATOR_MODEL_DEFAULT, UnusableModelResponse } from "../src/model.mjs";
+import { buildRequest, callModel, FORMAT, MEDIATOR_MODEL_DEFAULT, UnusableModelResponse } from "../src/model.mjs";
 
 const bundle = { exchangeId: "241", hash: "abc", items: [{ id: "pho-1", kind: "photo", provenance: "buyer", visibility: "shared", authored: false, content: { path: "p.jpg", sha256: "aa" } }] };
 
@@ -14,6 +14,34 @@ test("the request pins the model and uses structured output", () => {
   assert.equal(req.model, MEDIATOR_MODEL_DEFAULT);
   assert.ok(req.output_config?.format, "output_config.format missing");
   assert.equal("output_format" in req, false, "the deprecated parameter was used");
+});
+
+// ⚠️ Found by the first live calls, which the whole schema had never faced. The
+// structured-output validator accepts a schema's *structure* — types, enums,
+// required, additionalProperties — and rejects its *value constraints* with a
+// 400: minimum/maximum on a number, minItems above 1 on an array. Both were in
+// here, and both meant every request died before the model saw a single case.
+//
+// ⭐ So the rule is one rule rather than a list of keywords learned one 400 at a
+// time: the schema says what shape an answer has, and checkProposal says what
+// values are allowed. A constraint written here is not stricter, it is absent —
+// twice over, because the request never lands.
+test("the schema carries structure only, never a value constraint", () => {
+  const CONSTRAINTS = [
+    "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf",
+    "minItems", "maxItems", "uniqueItems", "minLength", "maxLength", "pattern",
+    "minProperties", "maxProperties",
+  ];
+  const offenders = [];
+  const walk = (node, path) => {
+    if (!node || typeof node !== "object") return;
+    for (const [key, child] of Object.entries(node)) {
+      if (CONSTRAINTS.includes(key)) offenders.push(`${path}.${key}`);
+      walk(child, `${path}.${key}`);
+    }
+  };
+  walk(FORMAT.schema, "schema");
+  assert.deepEqual(offenders, [], "the API returns 400 for these and no case is ever mediated");
 });
 
 test("thinking is adaptive", () => {

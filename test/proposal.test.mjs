@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { checkProposal, toBasisPoints, forParty, STATUS, FIELDS } from "../src/proposal.mjs";
 import { FORMAT } from "../src/model.mjs";
@@ -154,6 +155,44 @@ test("a schema-legal field carrying content is still refused", () => {
   }, bundle);
   assert.equal(r.ok, false);
   assert.match(r.reason, /requests/);
+});
+
+// ⭐ The schema used to carry this bound and can no longer: minimum/maximum on
+// a number is rejected by the API. A branch split is a percentage of the same
+// pot as every other number here, and it reaches the record through the
+// concluded path's `assumed`, so it is bounded where every other percentage is.
+test("a request branch whose split is outside 0-100 is refused", () => {
+  const r = checkProposal({
+    status: "needs_evidence",
+    provisional: { buyerPercent: 20, reasoning: "n" },
+    requests: [{
+      what: "a photograph of the outer carton",
+      whyItMatters: "w",
+      whoCanProvide: "buyer",
+      wouldChange: [
+        { answer: "intact", implies: "i", split: 20 },
+        { answer: "crushed", implies: "i", split: 140 },
+      ],
+    }],
+    findings: [],
+  }, bundle);
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /0-100/);
+});
+
+// ⭐ The third description of the same action space, and the only one the model
+// ever reads. The first live round returned a top-level buyerPercent on a
+// needs_evidence answer, and another returned status "proposal" carrying
+// requests — both refused by the bounds, both because the prompt never said
+// which fields a status carries. A contract the model is not told is a contract
+// it breaks, and the retry then spends the case's one second attempt on the
+// same mistake.
+test("the system prompt names every status and every field the bounds accept", () => {
+  const prompt = readFileSync(new URL("../fixtures/case/system.md", import.meta.url), "utf8");
+  const missing = [...new Set([...Object.keys(FIELDS), ...Object.values(FIELDS).flat()])]
+    .filter((name) => name !== "status")
+    .filter((name) => !prompt.includes(name));
+  assert.deepEqual(missing, [], "the model is never told about these, so it fills them by guesswork");
 });
 
 // Two independently-maintained descriptions of the action space drift. This is

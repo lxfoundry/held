@@ -74,11 +74,19 @@ export function createWatchdog({
     // The attempt is recorded before relaying and read back here, so the answer
     // survives the process dying between the two. Narrow on purpose: no attempt
     // means the dispute is somebody else's and is left unattributed.
+    //
+    // ⭐ Read again rather than trust the snapshot sweep() opened the pass with.
+    // The buyer can raise too, from scripts/raise-dispute.mjs — a separate
+    // process, so the in-process sweeping guard says nothing about it — and an
+    // earlier exchange sitting in confirm() can leave this snapshot minutes
+    // stale. exchanges.update re-reads from disk anyway, so this costs one read
+    // and shrinks the window from a whole sweep to microseconds.
+    const before = exchanges.get(record.exchangeId) ?? record;
     if (
       facts.disputeRaisedAt != null &&
       facts.disputeRaisedBy == null &&
-      record.disputeRaisedBy == null &&
-      record.disputeRaiseAttemptedAt != null
+      before.disputeRaisedBy == null &&
+      before.disputeRaiseAttemptedAt != null
     ) {
       facts.disputeRaisedBy = "watchdog";
     }
@@ -162,19 +170,36 @@ export function createWatchdog({
     // taken at its word. A revert throws here, which leaves the authorisation
     // in place and the record untouched, so the next sweep retries with the
     // window still open instead of recording a raise that does not exist.
-    await confirm(stored);
+    //
+    // ⭐ And it answers with the date the protocol recorded, which is the date
+    // this step writes down. Anything else is this process's clock describing a
+    // fact the protocol already dated — off by the read-back's own latency at
+    // best, and by however long the chain has held an action this record had
+    // lost track of at worst. now() is the fallback for a confirm() that reports
+    // no date, never the first answer: a non-number reaches the store's shape
+    // check, which throws after the relay has already landed.
+    const confirmed = await confirm(stored);
 
     // Discarded only once the action is known to have landed. Doing it any
     // earlier trades the buyer's protection for the appearance of success.
     discard(current.exchangeId, action);
 
-    const at = now();
-    exchanges.update(
-      current.exchangeId,
-      action === ACTIONS.RAISE
-        ? { disputeRaisedAt: at, disputeRaisedBy: "watchdog" }
-        : { escalatedAt: at }
-    );
+    const at = Number.isFinite(confirmed) ? confirmed : now();
+    if (action === ACTIONS.RAISE) {
+      // ⭐ Read again, exactly as the attribution guard above does and for the
+      // same reason. confirm() asks whether a dispute exists, not whose it is,
+      // so a buyer raise landing since this step decided answers it too. The
+      // unconditional write that used to be here then signed this watchdog's
+      // name to the buyer's own raise — the inversion attribution exists to
+      // prevent, reached from the other side. A raise already recorded is
+      // somebody's, and is left alone.
+      const settled = exchanges.get(current.exchangeId);
+      if (settled?.disputeRaisedAt == null) {
+        exchanges.update(current.exchangeId, { disputeRaisedAt: at, disputeRaisedBy: "watchdog" });
+      }
+    } else {
+      exchanges.update(current.exchangeId, { escalatedAt: at });
+    }
     log(`✓ ${action} relayed for exchange ${current.exchangeId} — ${reason}`);
     return { ...result, relayed: true };
   }

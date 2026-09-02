@@ -22,6 +22,7 @@ import { createStore } from "../src/store.mjs";
 import { createExchangeStore } from "../src/exchanges.mjs";
 import { createAuthorisationStore } from "../src/authorisations.mjs";
 import { createWatchdog } from "../src/watchdog.mjs";
+import { confirmedAt } from "../src/disputes.mjs";
 import { ESCALATE_LEAD, RAISE_LEAD, assertLeadSane, leadMs } from "../src/adapter.mjs";
 
 const MS = 1000;
@@ -147,18 +148,15 @@ const relay = async (stored) => {
 // receipt with no status field, and a meta-transaction that reverted on chain
 // comes back through exactly the same path as one that succeeded — so the only
 // honest answer comes from asking the protocol what it recorded.
-const confirm = async (stored) => {
-  await waitForState(
-    async () => {
-      const dispute = await disputeHandler.getDispute(stored.exchangeId);
-      if (!dispute.exists) return null;
-      const { disputed, escalated } = dispute.disputeDates;
-      const landed = stored.action === "raiseDispute" ? disputed : escalated;
-      return landed.isZero() ? null : true;
-    },
+//
+// ⭐ And what it recorded includes when. This used to answer `true` and discard
+// the date it had just polled for, which left the sweep stamping its own clock
+// on the record; it now hands the date back and the sweep writes that.
+const confirm = (stored) =>
+  waitForState(
+    async () => confirmedAt(await disputeHandler.getDispute(stored.exchangeId), stored.action),
     { what: `${stored.action} to be recorded for exchange ${stored.exchangeId}` }
   );
-};
 
 const watchdog = createWatchdog({
   exchanges,
