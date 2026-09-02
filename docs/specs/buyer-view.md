@@ -152,7 +152,7 @@ Why this line is required rather than decorative:
 
 | Module | Responsibility | Depends on |
 |---|---|---|
-| `src/buyer-view.mjs` | **Pure.** `viewFor({ record, tracking, caseRecord, listing, now })` → the whole view model. Every state in §4 is one case. | `buyer-state.mjs` only |
+| `src/buyer-view.mjs` | **Pure.** `viewFor({ record, tracking, caseRecord, listing, events, photos, allowConfirm })` → the whole view model. Every state in §4 is one case. | `buyer-state.mjs` only |
 | `src/buyer-state.mjs` | All user-visible copy; the two lines | nothing |
 | `src/buyer-server.mjs` | HTTP: static files, JSON reads, action writes | the stores, the action modules |
 | `public/index.html`, `held.css`, `held.js` | One screen, rendered from the view model | nothing |
