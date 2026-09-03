@@ -21,13 +21,24 @@
 // fixture: at round 1 the fixture does not mention the carton, so a script that
 // learned the evidence from the file could never put it back.
 //
-// Two entries carry the same fixture id and differ only in which image it is.
+// Three entries carry the same fixture id and differ only in which image it is.
 // That is the point: the outer carton is one evidence slot, and what the demo
 // changes is the photograph occupying it, not the shape of the case.
+//
+// ⚠️ All three sort before `inner.jpg`, and they have to. src/evidence.mjs numbers
+// photographs by sorted path, so a filename sorting the other way would put the
+// carton in the second slot and renumber both — and any difference in the
+// model's answer could then be the renumbering rather than the image. That is
+// why the third is named for the carton it shows and not for the packing.
 export const PHOTOS = {
   inner: { id: "inner", path: "fixtures/case/photos/inner.jpg", media_type: "image/jpeg" },
   carton: { id: "carton", path: "fixtures/case/photos/carton.jpg", media_type: "image/jpeg" },
   "carton-crushed": { id: "carton", path: "fixtures/case/photos/carton-crushed.jpg", media_type: "image/jpeg" },
+  "carton-crushed-padded": {
+    id: "carton",
+    path: "fixtures/case/photos/carton-crushed-padded.jpg",
+    media_type: "image/jpeg",
+  },
 };
 
 // The case in full, as evidence: the mediator asks for the outer carton, the
@@ -42,6 +53,15 @@ export const PHOTOS = {
 // — the real parcel's tracking, the offer terms, the message thread, the
 // protocol's dispute instant — is identical between them.
 //
+// 2c is that swap once more, to the crushed carton photographed open with the
+// void fill still in it. It separates the two readings 2b leaves joined: a
+// crushed carton on its own reads as packing that let an impact through, while
+// the same carton showing the padding around the set moves part of the loss to
+// handling neither party controlled. The recorded rounds bear that out — the
+// intact carton proposes 30%, the crushed one 22%, the crushed and padded one
+// 20% — and the three recordings are committed, so the claim is checkable
+// rather than asserted.
+//
 // ⚠️ It has to be a state of *this* case for that claim to hold. The comparison
 // is only controlled because nothing else moves; run against a different
 // exchange, the tracking history and the timings move too, and any difference in
@@ -50,11 +70,12 @@ export const ROUNDS = {
   1: ["inner"],
   2: ["inner", "carton"],
   "2b": ["inner", "carton-crushed"],
+  "2c": ["inner", "carton-crushed-padded"],
 };
 
 // Which mediation round a state stands in for. 2b is a round 2: it wants the
 // opening round already on file, and it is final under a cap of 2.
-export const ROUND_NUMBER = { 1: 1, 2: 2, "2b": 2 };
+export const ROUND_NUMBER = { 1: 1, 2: 2, "2b": 2, "2c": 2 };
 
 // Deliberately narrow: the region ends at the first `]`, so it matches the flat
 // array of objects the fixture holds and fails loudly on anything nested rather
@@ -73,7 +94,7 @@ export const OPENING_ROUND = "1";
 // The round a case reaches once `name` is the photograph that has been added to
 // it — the whole of what adding a photograph does here. It is the opening round
 // plus one photograph, and which one is the branch choice: `carton` gives round
-// 2, `carton-crushed` gives 2b.
+// 2, `carton-crushed` gives 2b, `carton-crushed-padded` gives 2c.
 //
 // ⭐ Derived from ROUNDS rather than tabulated beside them. A second table
 // would be a second place the same mapping is stated, and a table that
@@ -107,7 +128,8 @@ export function roundAdding(name) {
 //
 // ⚠️ The order is the declaration order of ROUNDS, so which branch is the
 // default is decided by where it sits in that table and nowhere else. Today
-// that is the intact carton, and the crushed one is reached by naming it.
+// that is the intact carton, and the two crushed ones are reached by naming
+// them.
 export function addablePhotos() {
   return Object.keys(PHOTOS).filter((name) => roundAdding(name) !== undefined);
 }

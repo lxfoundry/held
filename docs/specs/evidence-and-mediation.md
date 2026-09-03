@@ -508,6 +508,42 @@ This exists for three reasons, in ascending order of importance:
 is labelled as one — the honest claim is *"this ran, here is what it produced"*, never an implication
 that it is running now.
 
+### 7.1 The controlled comparison
+
+Three of the committed recordings are the same case with **one photograph changed**, and nothing
+else. That is what makes them evidence about the mediator rather than three anecdotes.
+
+The case opens with a single photograph of the damaged item, the mediator asks for the outer parcel,
+and the answer occupies one evidence slot. Three photographs can fill it:
+
+| Round | The photograph in the carton slot | Proposed buyer share |
+|---|---|---|
+| 2 | the outer carton, square and sealed | **30%** |
+| 2b | the same carton, crushed at one corner | **22%** |
+| 2c | that crushed carton opened, void fill still in it | **20%** |
+
+The reasoning moves with the image and says why. An intact carton around a crushed item reads as
+damage that predates the post, so it sits with the seller. A crushed carton reads as an impact in
+transit that the packing let through. The same carton showing the padding around the item moves part
+of the loss again, to handling neither party controlled.
+
+⚠️ **The comparison is only controlled because exactly one thing moves.** Two properties enforce
+that, and both are tested:
+
+- **Same case.** The tracking, the offer terms, the message thread and the protocol's dispute instant
+  are identical across the three. Run against a different exchange and the timings move too, so any
+  difference in the answer is unattributable.
+- **Same evidence slot.** Assembly numbers photographs by sorted path
+  ([§2.1](#21-id--stable-short-and-cited)), so a filename sorting differently would renumber both
+  items — and the difference in the answer could then be the renumbering rather than the image. All
+  three carton photographs are named to sort ahead of the item's, and `test/case-fixture.test.mjs`
+  asserts the carton is `pho-1` in every branch.
+
+The percentages are what the committed recordings hold: a record of what this model produced on this
+evidence under the prompt in `fixtures/case/system.md`. They are not a guarantee that the same
+prompt returns the same number on a later run — the sampling parameters are not settable on this
+model, so every re-recording is a fresh draw.
+
 ---
 
 ## 8. The model call
@@ -560,6 +596,7 @@ become a lookup table with a language model attached.
 | Deadline | with the escalation instant passed, no request is made and the case closes on what it has |
 | Unanswered request | a request nobody answers ends the case normally and appears in the case file |
 | Replay | a matching hash serves the recording and makes no API call |
+| Controlled comparison | every branch round differs from round 2 in exactly one photograph, and that photograph lands in the same evidence slot |
 
 Everything above runs against recorded responses and needs no API key. Only a live call needs one.
 

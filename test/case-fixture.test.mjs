@@ -36,16 +36,17 @@ test("each round holds exactly the photographs it is defined to hold", () => {
 
 // ⭐ The mapping the buyer's "Add a photo" runs on: a photograph names the
 // round the case reaches once it has been added, and that is what makes the one
-// edit in this file the only writer of a case's photographs. Pinned to the two
+// edit in this file the only writer of a case's photographs. Pinned to the three
 // answers it must give, so a change to ROUNDS that silently stopped naming a
 // branch is a failure here rather than a wrong evidence set written at run time.
 test("a branch photograph names the round that adds it", () => {
   assert.equal(roundAdding("carton"), "2");
   assert.equal(roundAdding("carton-crushed"), "2b");
+  assert.equal(roundAdding("carton-crushed-padded"), "2c");
 });
 
 test("the round a photograph names is the opening round plus that photograph", () => {
-  for (const name of ["carton", "carton-crushed"]) {
+  for (const name of ["carton", "carton-crushed", "carton-crushed-padded"]) {
     assert.deepEqual(
       photoPathsFor(roundAdding(name)),
       [...photoPathsFor(OPENING_ROUND), PHOTOS[name].path],
@@ -101,28 +102,36 @@ const photoIds = (round) => {
     .map((i) => [i.id, i.content.path.split("/").pop()]);
 };
 
-test("2b puts the crushed carton in the slot the intact one held", () => {
+test("every branch puts its carton in the slot the intact one held", () => {
   const two = photoIds("2");
-  const twoB = photoIds("2b");
-  assert.deepEqual(two.map(([id]) => id), twoB.map(([id]) => id), "same evidence ids");
   assert.deepEqual(two[0], ["pho-1", "carton.jpg"]);
-  assert.deepEqual(twoB[0], ["pho-1", "carton-crushed.jpg"]);
-  // The unchanged photograph must not move either, or the swap is not the only
-  // difference the model sees.
   assert.deepEqual(two[1], ["pho-2", "inner.jpg"]);
-  assert.deepEqual(twoB[1], ["pho-2", "inner.jpg"]);
+  for (const [round, filename] of [
+    ["2b", "carton-crushed.jpg"],
+    ["2c", "carton-crushed-padded.jpg"],
+  ]) {
+    const branch = photoIds(round);
+    assert.deepEqual(two.map(([id]) => id), branch.map(([id]) => id), `${round}: same evidence ids`);
+    assert.deepEqual(branch[0], ["pho-1", filename], round);
+    // The unchanged photograph must not move either, or the swap is not the only
+    // difference the model sees.
+    assert.deepEqual(branch[1], ["pho-2", "inner.jpg"], round);
+  }
 });
 
-test("2b is a round 2, so it wants the opening round already on file", () => {
+test("the branch rounds are round 2s, so they want the opening round on file", () => {
   assert.equal(ROUND_NUMBER["2b"], 2);
+  assert.equal(ROUND_NUMBER["2c"], 2);
   assert.equal(ROUND_NUMBER["2"], 2);
   assert.equal(ROUND_NUMBER["1"], 1);
 });
 
-test("2b differs from round 2 in exactly one photograph", () => {
+test("every branch differs from round 2 in exactly one photograph", () => {
   const two = photoPathsFor("2");
-  const twoB = photoPathsFor("2b");
-  assert.equal(two.length, twoB.length);
-  const differing = two.filter((p, i) => p !== twoB[i]);
-  assert.equal(differing.length, 1, "one photograph, or the comparison is not controlled");
+  for (const round of ["2b", "2c"]) {
+    const branch = photoPathsFor(round);
+    assert.equal(two.length, branch.length, round);
+    const differing = two.filter((p, i) => p !== branch[i]);
+    assert.equal(differing.length, 1, `${round}: one photograph, or the comparison is not controlled`);
+  }
 });
