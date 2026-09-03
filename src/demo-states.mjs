@@ -311,6 +311,19 @@ export const CATALOGUE = [
     }),
     expect: { money: "split", parcel: "arrived", actions: [], notice: false, timeline: false, mediation: false },
   },
+  {
+    id: "99999914",
+    name: "there is no tracking for it at all",
+    what: "No tracker the store can read — never registered, or its snapshot is gone. The screen says so rather than picking the first line of the parcel table, which is what it used to do.",
+    // ⚠️ Names no tracker, and that is the state. Every other entry points at
+    // one; this is the one where nothing resolves, and it is reachable in
+    // ordinary use — an EVENTS_DIR pointing somewhere else is enough, and a
+    // finalised record then drew "On its way" beneath "Seller has been paid".
+    tracker: null,
+    listing: { title: "Cast iron casserole dish", body: "Enamel chipped on the lid rim.", priceText: "45" },
+    patch: () => ({}),
+    expect: { money: "held", parcel: "no_tracking", actions: [], notice: false, timeline: false, mediation: false },
+  },
 ];
 
 // The exchange record an entry stands for, at the instant it is built.

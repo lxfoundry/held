@@ -465,6 +465,7 @@ Then open `http://127.0.0.1:3100/` with no `?purchase=` and the list holds a car
 | `99999910` | ended: the seller was paid |
 | `99999911` | ended: the money came back |
 | `99999912` | ended: they split it |
+| `99999914` | there is no tracking for it at all |
 
 The table itself is [`src/demo-states.mjs`](src/demo-states.mjs), and every entry declares the state
 it claims to produce. `test/demo-states.test.mjs` renders all of them through the real view and

@@ -40,6 +40,10 @@ const recording = (hash) =>
 // fresh clone has them and this test needs nothing generated first.
 const captured = {};
 for (const entry of CATALOGUE) {
+  // ⚠️ An entry naming no tracker is a state, not an omission — the screen the
+  // view draws when nothing resolves. Reading a snapshot for it would look for
+  // fixtures/events/null.json and fail the whole file.
+  if (entry.tracker == null) continue;
   if (!DEMO_TRACKERS[entry.tracker] && !captured[entry.tracker]) {
     captured[entry.tracker] = snapshot(entry.tracker);
   }
