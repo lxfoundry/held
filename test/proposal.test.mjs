@@ -195,6 +195,30 @@ test("the system prompt names every status and every field the bounds accept", (
   assert.deepEqual(missing, [], "the model is never told about these, so it fills them by guesswork");
 });
 
+// ⭐ The prompt says how to mediate; it never says what the case is. A prompt
+// that names the situation it expects has stopped being a mediator and become a
+// lookup table with a language model attached — docs/specs/evidence-and-mediation.md
+// §8 states that rule, and this is what makes it fail rather than merely be
+// stated.
+//
+// ⚠️ It has been broken once, and expensively. Two sentences naming this case's
+// own discriminator — how the parcel was packed and what it travelled in —
+// steered the number rather than the question, and inverted the comparison in
+// §7.1: the branch with the intact carton proposed *less* than the crushed one.
+// Nothing failed at the time. It surfaced only when two recorded numbers were
+// compared across a prompt change, four re-recordings later. This is the check
+// that fails on the commit instead.
+test("the system prompt names none of the demonstrated case's own evidence", () => {
+  const prompt = readFileSync(new URL("../fixtures/case/system.md", import.meta.url), "utf8");
+  const named = ["carton", "packing", "packed", "padding", "void fill", "crushed", "corner", "box", "wine", "lego"]
+    .filter((word) => new RegExp(`\\b${word}\\b`, "i").test(prompt));
+  assert.deepEqual(
+    named,
+    [],
+    "these name the demonstrated case, so the prompt is steering the answer rather than asking the question",
+  );
+});
+
 // Two independently-maintained descriptions of the action space drift. This is
 // the test that says so on the commit that does it, rather than on the first
 // case that hits the difference.

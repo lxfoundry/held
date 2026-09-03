@@ -348,13 +348,13 @@ the round sets the whole list of photographs at once.
 
 ⭐ **The `photo` id is optional, and its absence is the ordinary case.** The buyer presses one
 button; which photograph that attaches is a lookup in the rounds table, taking the first one they
-declare. An operator naming one selects the other branch instead. The action is therefore **never
+declare. An operator naming one selects another branch instead. The action is therefore **never
 drawn disabled** — it was, unless a photograph appeared in the page's URL, which made a primary
 control under a question asking for evidence unusable as drawn.
 
-⚠️ **The buyer is never asked which one.** The two photographs of the outer carton are one evidence
-slot holding two versions of the same fact, and which version is true is precisely what the mediator
-reads the evidence to establish — the branches settle at different numbers. A control asking the
+⚠️ **The buyer is never asked which one.** The photographs of the outer carton are one evidence
+slot holding competing versions of the same fact, and which version is true is precisely what the
+mediator reads the evidence to establish — the branches settle at different numbers. A control asking the
 buyer to state whether their carton was crushed would be asking them to label their own evidence,
 and to pick their own settlement while doing it. Three properties follow from that alone,
 rather than from separate checks:
@@ -364,7 +364,7 @@ rather than from separate checks:
   traversal;
 - applying the round a case already stands in reproduces its text exactly, so a repeat leaves the
   file untouched and still answers `200`;
-- the two photographs of the outer carton are **one evidence slot** and carry the same id, so the
+- the photographs of the outer carton are **one evidence slot** and carry the same id, so the
   branch that arrives fills the slot rather than joining the one already in it. A case holding both
   an intact and a crushed outer carton would be evidence that contradicts itself.
 
@@ -383,7 +383,8 @@ the mediator reads to decide what a buyer is owed. The precondition is therefore
 already stands at one of the rounds, and it is checked before anything is written:
 
 - **any** round, not the one the move opens from, because the branches are alternatives within one
-  slot — a case at the crushed branch takes the intact carton and becomes a case at the intact one;
+  slot and any of them takes any other — a case at a crushed branch takes the intact carton and
+  becomes a case at the intact one;
 - a case holding **no** photographs stands at no round, so it is refused too: the opening round *is*
   the first photograph, and no move reaches it. §6.1's "`photos` and `messages` are simply absent"
   describes exactly this shape, and a purchase in it has nothing here to add;

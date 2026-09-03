@@ -101,10 +101,10 @@ export function createCaseInputStore(dir) {
 
   // ⭐ photoId is optional, and its absence is the ordinary case rather than an
   // error. The buyer presses one button; which photograph that attaches is a
-  // lookup in the rounds table, not a question to put to them — the two
-  // photographs of the outer carton are one evidence slot holding two versions
-  // of the same fact, and which version is true is what the mediator reads the
-  // evidence to find out. An operator naming one selects the branch; nobody
+  // lookup in the rounds table, not a question to put to them — the
+  // photographs of the outer carton are one evidence slot holding competing
+  // versions of the same fact, and which version is true is what the mediator
+  // reads the evidence to find out. An operator naming one selects the branch; nobody
   // naming one takes the first the rounds declare.
   //
   // ⚠️ Not "the photograph this case does not yet hold". Applying the round a
@@ -114,7 +114,7 @@ export function createCaseInputStore(dir) {
   function addPhoto(exchangeId, photoId = null) {
     const wanted = photoId ?? addablePhotos()[0] ?? null;
     // ⚠️ The allowlist, and it is neither a pattern nor a directory listing. A
-    // photo id names a round, and the rounds are a table of two acceptable
+    // photo id names a round, and the rounds are a closed table of acceptable
     // strings held in source — so a traversal attempt is refused for naming no
     // round, with no path ever built from it and nothing read off disk to
     // decide. See isSafeTrackerId in src/store.mjs for the same reasoning

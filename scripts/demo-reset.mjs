@@ -5,13 +5,16 @@
 //   node scripts/demo-reset.mjs --execute              # back to round 1
 //   node scripts/demo-reset.mjs --round 2 --execute    # the buyer has added the carton
 //   node scripts/demo-reset.mjs --round 2b --execute   # ...and that carton is crushed
+//   node scripts/demo-reset.mjs --round 2c --execute   # ...crushed, with the padding still in it
 //
-// ⭐ 2b is the comparison. It is round 2 with one photograph swapped and
-// everything else — the parcel's real tracking, the offer terms, the messages,
-// the dispute instant — held identical, so a difference in what the mediator
-// says is attributable to the evidence and to nothing else. Round 2's recorded
-// reasoning turns on the outer carton being undamaged; 2b is what it says when
-// it is not.
+// ⭐ 2b and 2c are the comparison. Each is round 2 with one photograph swapped
+// and everything else — the parcel's real tracking, the offer terms, the
+// messages, the dispute instant — held identical, so a difference in what the
+// mediator says is attributable to the evidence and to nothing else. Round 2's
+// recorded reasoning turns on the outer carton being undamaged; 2b is what it
+// says when it is not, and 2c is what it says when that same crushed carton is
+// open and the void fill around the sets is visible. The three are specified
+// together in docs/specs/evidence-and-mediation.md §7.1.
 //
 // ⭐ Two things degrade a demonstration run silently, and this is the only
 // place that checks both.
@@ -49,6 +52,11 @@ import { createCaseStore, createRecordingStore } from "../src/cases.mjs";
 import { DEFAULT_MAX_ROUNDS, deadlineFor, isNewRound, shouldMediate } from "../src/mediator.mjs";
 import { applyPhotos, photoPathsFor, PHOTOS, ROUNDS, ROUND_NUMBER } from "../src/case-fixture.mjs";
 import { STATUS } from "../src/proposal.mjs";
+
+// ⚠️ Read off ROUNDS rather than typed out, because a hand-written usage line is
+// a second place the branch list is stated and the operator-facing one is the
+// place it must not be stale. Adding a branch to the table puts it in the help.
+const USAGE = `  usage: node scripts/demo-reset.mjs [--round ${Object.keys(ROUNDS).join("|")}] [--execute]`;
 
 const ok = (line) => console.log(`✓ ${line}`);
 const info = (line) => console.log(`  ${line}`);
@@ -100,7 +108,7 @@ for (const name of VALUED) {
   // declines to read the next flag as a value; this says so out loud.
   if (args[i + 1] === undefined || args[i + 1].startsWith("--")) {
     console.error(`✗ --${name} needs a value`);
-    console.error("  usage: node scripts/demo-reset.mjs [--round 1|2|2b] [--execute]");
+    console.error(USAGE);
     process.exit(1);
   }
   consumed.add(i + 1);
@@ -108,7 +116,7 @@ for (const name of VALUED) {
 const stray = args.filter((value, i) => !consumed.has(i) && !known.has(value));
 if (stray.length > 0) {
   console.error(`✗ unrecognised argument${stray.length === 1 ? "" : "s"}: ${stray.join(" ")}`);
-  console.error("  usage: node scripts/demo-reset.mjs [--round 1|2|2b] [--execute]");
+  console.error(USAGE);
   console.error("  the exchange is fixed: this script describes one case");
   process.exit(1);
 }
@@ -116,7 +124,8 @@ if (stray.length > 0) {
 const round = flag("round", "1");
 if (!ROUNDS[round]) {
   console.error(`✗ --round takes ${Object.keys(ROUNDS).join(", ")}, not ${JSON.stringify(round)}`);
-  console.error("  2b is round 2 with the outer carton crushed instead of intact");
+  console.error("  2b and 2c are round 2 with the outer carton crushed instead of intact,");
+  console.error("  2c being that carton open with the void fill still in it");
   process.exit(1);
 }
 const exchangeId = EXCHANGE_ID;

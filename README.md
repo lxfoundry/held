@@ -271,7 +271,7 @@ URL:
   the view can render.
 - `?photo=<photoId>` — **optional.** Which photograph the "add evidence" action attaches, once a
   dispute is open and evidence has been requested. Absent, the action still works and attaches the
-  first photograph the rounds declare; the parameter selects the other branch of the damage case.
+  first photograph the rounds declare; the parameter selects one of the damage case's other branches.
   It changes what a press attaches and nothing about what is drawn — the model is identical either
   way. The id names one of the photographs a case can be *added*; the opening round's own evidence
   is already on file and is refused like anything else, leaving the case file alone.

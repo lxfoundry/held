@@ -83,24 +83,40 @@ test("a fixture with no photographs region is refused", () => {
   assert.throws(() => applyPhotos('{ "exchangeId": "241" }', 1), /could not find the photos array/);
 });
 
-// ⭐ The property the comparison rests on. 2b differs from round 2 by one
-// photograph, and it is only a controlled test if that photograph lands in the
-// same evidence slot: src/evidence.mjs numbers photographs by sorted path, so
+// ⭐ The property the comparison rests on. Each branch differs from round 2 by
+// one photograph, and it is only a controlled test if that photograph lands in
+// the same evidence slot: src/evidence.mjs numbers photographs by sorted path, so
 // a filename sorting differently would silently renumber both and any change in
 // the model's answer could be the renumbering rather than the image.
-const photoIds = (round) => {
+//
+// ⚠️ The tracking and the offer terms are the parts a real run supplies from the
+// exchange record rather than from the case file, and they are handed to every
+// round here as the same value — parcel A's own events, not a shape written to
+// match. That is the other half of the comparison: it is only controlled if
+// nothing outside the photographs moves, and a stand-in that varied per round
+// would hide exactly the failure this asserts against.
+const PARCEL_A = JSON.parse(
+  readFileSync(join(ROOT, "fixtures/events/8645991e-538a-40a2-8618-6f9d3777a6ae.json"), "utf8"),
+).events;
+const OFFER_TERMS = { price: "200", currency: "USDC", disputePeriodMs: 604800000 };
+
+const bundleFor = (round) => {
   const parsed = JSON.parse(applyPhotos(committed, round));
   return assembleBundle({
     exchangeId: "241",
-    tracking: { events: [] },
+    tracking: { events: PARCEL_A },
+    offerTerms: OFFER_TERMS,
     photos: parsed.photos.map((p) => ({ path: p.path, sha256: "0".repeat(64) })),
     messages: parsed.messages,
     listing: parsed.listing,
     viewer: "mediator",
-  })
+  });
+};
+
+const photoIds = (round) =>
+  bundleFor(round)
     .items.filter((i) => i.kind === "photo")
     .map((i) => [i.id, i.content.path.split("/").pop()]);
-};
 
 test("every branch puts its carton in the slot the intact one held", () => {
   const two = photoIds("2");
@@ -134,4 +150,22 @@ test("every branch differs from round 2 in exactly one photograph", () => {
     const differing = two.filter((p, i) => p !== branch[i]);
     assert.equal(differing.length, 1, `${round}: one photograph, or the comparison is not controlled`);
   }
+});
+
+// ⭐ The claim docs/specs/evidence-and-mediation.md §7.1 makes about the branches
+// being one case, asserted over the assembled evidence rather than over the
+// file: the tracking, the offer terms, the message thread and the listing reach
+// the model identically, so the only thing that can account for a difference in
+// what it says is the photograph. The test above fixes the photographs; this
+// one fixes everything else.
+test("every branch is the same case outside the swapped photograph", () => {
+  const others = (round) => bundleFor(round).items.filter((i) => i.kind !== "photo");
+  const two = others("2");
+  const kinds = [...new Set(two.map((i) => i.kind))];
+  assert.deepEqual(
+    kinds.sort(),
+    ["listing", "message", "offer_terms", "tracking_event"],
+    "a bundle missing a kind would leave this asserting less than it claims",
+  );
+  for (const round of ["2b", "2c"]) assert.deepEqual(others(round), two, round);
 });

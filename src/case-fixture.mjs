@@ -73,8 +73,8 @@ export const ROUNDS = {
   "2c": ["inner", "carton-crushed-padded"],
 };
 
-// Which mediation round a state stands in for. 2b is a round 2: it wants the
-// opening round already on file, and it is final under a cap of 2.
+// Which mediation round a state stands in for. 2b and 2c are round 2s: they
+// want the opening round already on file, and are final under a cap of 2.
 export const ROUND_NUMBER = { 1: 1, 2: 2, "2b": 2, "2c": 2 };
 
 // Deliberately narrow: the region ends at the first `]`, so it matches the flat
@@ -118,18 +118,19 @@ export function roundAdding(name) {
 }
 
 // The photographs that can be added to a case standing at the opening round, in
-// the order the rounds declare them. The first is the branch taken when nobody
+// the order PHOTOS declares them. The first is the branch taken when nobody
 // names one.
 //
-// ⭐ Derived from ROUNDS through roundAdding, for the reason roundAdding itself
-// gives: a second table would be a second place the same mapping is stated, and
-// one that disagreed would fail silently. Adding a branch to ROUNDS puts it on
-// this list; it never has to be added twice.
+// ⭐ Membership is derived from ROUNDS through roundAdding, for the reason
+// roundAdding itself gives: a second table would be a second place the same
+// mapping is stated, and one that disagreed would fail silently. Adding a
+// branch to ROUNDS puts it on this list; it never has to be added twice.
 //
-// ⚠️ The order is the declaration order of ROUNDS, so which branch is the
-// default is decided by where it sits in that table and nowhere else. Today
-// that is the intact carton, and the two crushed ones are reached by naming
-// them.
+// ⚠️ The *order*, though, is PHOTOS' declaration order and not ROUNDS' — this
+// filters the one by consulting the other. So which branch is the default is
+// decided by where it sits in PHOTOS, and moving a row there changes what the
+// buyer's one button attaches. Today the first is the intact carton, and the
+// two crushed ones are reached by naming them.
 export function addablePhotos() {
   return Object.keys(PHOTOS).filter((name) => roundAdding(name) !== undefined);
 }
