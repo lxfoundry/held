@@ -217,6 +217,9 @@ Longer form: [`docs/chain.md`](docs/chain.md), [`docs/receiver.md`](docs/receive
 [`docs/running-a-case.md`](docs/running-a-case.md). Every step that has a choice in it lists the
 options and what each routes the case towards.
 
+⭐ **To drive the case that is already committed — four recorded states, offline:**
+[`docs/running-the-demo.md`](docs/running-the-demo.md).
+
 ---
 
 ## 7. Scope
@@ -413,6 +416,25 @@ the file is small enough to be one.
 
 It **never overwrites an existing case**, because the cost of a mistyped id is replacing evidence a
 recorded round is keyed on: the bundle hash moves, and a replay silently becomes a live call.
+
+### `npm run demo-reset`
+
+Puts the committed case back at one of its four states — `1`, `2`, `2b`, `2c` — and, more to the
+point, says whether the next round replays from a recording or reaches for the API:
+
+```bash
+npm run demo-reset                          # report, change nothing
+npm run demo-reset -- --execute             # back to round 1
+npm run demo-reset -- --round 2b --execute  # round 2, with the outer carton crushed
+```
+
+⭐ **The verdict is the point and the reset is the side effect.** A run reporting the bundle is
+recorded is a promise the round costs nothing and needs no network; a run reporting it is not is a
+warning that the next round will call the API.
+
+The whole sequence — preflight, the case run forward, the comparison run cold, what each warning
+means, and how to leave the tree clean afterwards — is
+[`docs/running-the-demo.md`](docs/running-the-demo.md).
 
 ### `npm run demo-states`
 

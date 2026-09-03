@@ -5,6 +5,10 @@ From a fresh clone to a proposed split, on a real exchange, with real model call
 Every step that has a genuine choice in it lists the options and what each one routes the case
 towards. Take the ⭐ row if you have no reason to prefer another.
 
+> ⭐ **For the case that is already committed, see [`running-the-demo.md`](./running-the-demo.md)**
+> instead — four recorded states, no model calls and no network. This document is for making a new
+> one, where what the model says has never been seen before.
+
 > ⚠️ **Two of these steps spend something and cannot be undone** — seeding an exchange moves testnet
 > funds, and settling finalises one permanently. Both plan and stop without `--execute`. Nothing else
 > here costs anything except the model calls in step 6, which are marked.
