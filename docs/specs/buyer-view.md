@@ -262,8 +262,10 @@ Two consequences, both deliberate:
 ## 7 · The screen
 
 One purchase fills the screen as a single column of about 440px, centred. The remaining width
-carries the wordmark and nothing else. There is no navigation, no routing and no back button: the
-list of purchases is the same page with no purchase selected.
+carries the wordmark and nothing else. The list of purchases is the same page with no purchase
+selected, and **the wordmark links to it** — `href="/"`, which drops every query parameter and so
+returns the list whichever purchase, and whichever photograph, the address named. That link is the
+only navigation on the screen; there is no menu and no back button.
 
 A row in that list draws the item, then **the parcel line** — where the parcel has got to — and then
 the money line **only when it is not `held`**. "Your money is held" is true of every purchase that

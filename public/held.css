@@ -7,7 +7,11 @@ body {
   margin: 0; padding: 30px 40px; background: var(--ground); color: var(--ink);
   font: 16px/1.45 "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
 }
-.mark { font-size: 20px; font-weight: 700; color: var(--green-ink); margin-bottom: 26px; }
+/* The wordmark is the way back to the list — the only navigation on the
+   screen. inline-block so the click target is the word and not the width of
+   the page, and so the 26px below it still separates it from the column. */
+.mark { display: inline-block; font-size: 20px; font-weight: 700; color: var(--green-ink);
+        text-decoration: none; margin-bottom: 26px; }
 main { width: 440px; margin: 0 auto; }
 
 /* The money block is the largest type on the screen, in every state. */
