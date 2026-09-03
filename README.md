@@ -13,6 +13,9 @@ Consumer protection that doesn't need a platform.
 Held is a buyer-side app for peer-to-peer marketplace purchases, built on
 [Boson Protocol](https://bosonprotocol.io) and deployed on Base.
 
+**It is live.** Addresses, the exchanges that exist on chain, and a read-only command that verifies
+all of it against the live chain: [§6a, Deployed](#6a-deployed).
+
 It is being built for the **EasyA hackathon at the UK Parliament on Friday 4 September 2026**.
 
 ---
@@ -219,6 +222,57 @@ options and what each routes the case towards.
 
 ⭐ **To drive the case that is already committed — four recorded states, offline:**
 [`docs/running-the-demo.md`](docs/running-the-demo.md).
+
+### 6a. Deployed
+
+**Base Sepolia, chain `84532`, Boson configuration `testing-84532-0`.** Every value below was read
+live from the chain on **3 September 2026**, at block 46,337,841.
+
+| | |
+| --- | --- |
+| Boson Protocol | [`0x7de418a7ce94debd057c34ebac232e7027634ade`](https://sepolia.basescan.org/address/0x7de418a7ce94debd057c34ebac232e7027634ade) — Boson's shared testing deployment. The exchange ids below are ours within it |
+| Exchange token | [`0x036cbd53842c5426634e7929541ec2318f3dcf7e`](https://sepolia.basescan.org/address/0x036cbd53842c5426634e7929541ec2318f3dcf7e) — Circle's USDC on Base Sepolia, 6 decimals, accepted by the protocol at zero fee |
+| Buyer wallet | [`0x67beeeaE372075e26ED88bfC3f9581530059dEf5`](https://sepolia.basescan.org/address/0x67beeeaE372075e26ED88bfC3f9581530059dEf5) — holds no native currency; every buyer action is a signature relayed as a meta-transaction |
+| Dispute resolver | **id 35**, active, assistant `0x579c546444c0Ad41956BD1F17FbB85864c2B69F7`. Escalation response period 90 days, seller allow list empty — any seller may use it |
+| Protocol limits | Dispute period min 7 days · resolution period min 7 days, max 90 · protocol fee 0.5% |
+
+**The exchanges.** Each one exists on chain and was driven through the states named, by this code:
+
+| Exchange | Offer | What it is |
+| --- | --- | --- |
+| `234` | `120` | The watchdog raised the dispute, then escalated it to the dispute resolver |
+| `235` | `121` | ⭐ **The clean path** — redeemed, then completed by the buyer, finalised, **seller paid**. Completing is optional; it releases the payment early rather than waiting out the dispute period |
+| `236` | `122` | The watchdog raised, then escalated |
+| `237` | `123` | Redeemed, dispute period open, both buyer authorisations held and submittable |
+| `238` | `124` | ⭐ **A mediated settlement, on chain** — the buyer raised, both sides accepted a split, finalised at **buyer 30%** |
+| `239` | `125` | Redeemed, dispute period open, both authorisations held |
+| `240` | `126` | ⭐ **The watchdog against a real undelivered parcel** — a genuine Royal Mail tracking number, silent in the network for five days. Its records are kept in a store of their own, so a routine watchdog run cannot reach it |
+| `241` | `127` | The committed case the demonstration drives — buyer raised, dispute open. See [`docs/running-the-demo.md`](docs/running-the-demo.md) |
+
+⚠️ **`state/` is gitignored**, so a fresh clone has none of the records above. They describe chain
+state, which is why they can be verified without them.
+
+**Verify it yourself, without a wallet:**
+
+```bash
+npm run chain-check
+```
+
+⭐ **`cp .env.example .env` is enough** — the three values this command needs (`CHAIN_ID`,
+`BOSON_ENV`, `BOSON_CONFIG_ID`) are already filled in there, and it uses a shared default RPC if
+`RPC_URL` is blank.
+
+It **reads only** — it spends nothing, signs nothing and needs no private key. It resolves the
+configuration from the protocol rather than from `.env`, reads the protocol's own limits, confirms the
+dispute resolver is active, and confirms the exchange token answers and is accepted. Anything it
+cannot prove it says it cannot prove: reaching the relayer's API proves the gateway is up and
+routing, **not** that a relay succeeds, which needs a real signature.
+
+⚠️ **This is a testnet deployment and the money is test USDC.** Nothing here moves real value. The
+protocol is the same one that runs on mainnet Base; the chain under it is not.
+
+Longer form on the chain path, pinned versions, the relayer and the traps:
+[`docs/chain.md`](docs/chain.md).
 
 ---
 
