@@ -213,6 +213,10 @@ Repository layout:
 Longer form: [`docs/chain.md`](docs/chain.md), [`docs/receiver.md`](docs/receiver.md),
 [`docs/specs/offer-model.md`](docs/specs/offer-model.md).
 
+⭐ **To run one yourself, from a fresh clone to a proposed split:**
+[`docs/running-a-case.md`](docs/running-a-case.md). Every step that has a choice in it lists the
+options and what each routes the case towards.
+
 ---
 
 ## 7. Scope
