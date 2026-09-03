@@ -291,6 +291,11 @@ Three properties, and each answers a way this would otherwise be wrong:
 - **A press, not a hover.** Hover has no answer on a touch screen, and a picture that covers the page
   because the pointer crossed it is a worse failure than one that needs a press. The thumbnails are
   reachable by keyboard and open on Enter or Space for the same reason.
+- ⚠️ **While it is open, focus is held inside it.** It is marked modal, which asserts that everything
+  behind it is inert, and Tab is where that assertion gets tested: the overlay holds nothing
+  focusable, so an untrapped Tab would walk focus onto the buttons behind the scrim — controls the
+  buyer cannot see, one of which settles a case. Focus is held rather than cycled, there being
+  nothing to cycle between, and Escape remains the way out.
 - ⚠️ **It is drawn outside the app root.** The screen redraws whenever the model changes — a
   photograph added, a round answered — and an overlay inside that root would vanish mid-look, on a
   tick the buyer did not cause and cannot see. It is attached to the document once and outlives every

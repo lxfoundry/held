@@ -398,7 +398,20 @@ function hideEnlarged() {
 
 enlarged.addEventListener("click", hideEnlarged);
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") hideEnlarged();
+  if (e.key === "Escape") {
+    hideEnlarged();
+    return;
+  }
+  // ⚠️ aria-modal asserts that everything behind this is inert, and Tab is
+  // where that assertion gets tested. The overlay holds nothing focusable, so
+  // without this a Tab press walks focus onto the buttons and thumbnails still
+  // in #app behind the scrim — controls the buyer cannot see, cannot have meant
+  // to reach, and one of which settles a case. Focus is held rather than
+  // cycled, because there is nothing here to cycle between.
+  if (e.key === "Tab" && !enlarged.hidden) {
+    e.preventDefault();
+    enlarged.focus();
+  }
 });
 
 function actionsBlock(actions) {
