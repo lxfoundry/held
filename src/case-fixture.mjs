@@ -188,3 +188,56 @@ export function applyPhotos(text, round) {
   // inserted rather than interpreted. Inert for today's paths; free to foreclose.
   return text.replace(PHOTOS_BLOCK, () => `"photos": [\n${rendered}\n  ]`);
 }
+
+// What a buyer writes when the parcel has arrived and the thing inside it is
+// wrong. It is the one message that makes a case a *case* rather than a
+// purchase: tracking says delivered, so nothing but the buyer can say this.
+export const OPENING_COMPLAINT =
+  "It arrived today. One box has a badly crushed corner, split right open. That isn't what I paid for.";
+
+// A case input for an exchange that has none, as text.
+//
+// ⭐ The listing, the message thread and the photographs are the only evidence
+// the chain and the carrier never saw, so nothing can derive them and a new
+// exchange has no case file at all — while scripts/mediate.mjs reads one
+// unconditionally. This writes the smallest file that is still a case.
+//
+// ⚠️ Text, not an object, and for the reason src/case-input.mjs gives: applyPhotos
+// edits one region of the file and leaves every other byte alone, so a case has
+// to *be* text for the buyer's "Add a photo" to move it between rounds. Which is
+// also why the photographs are rendered by applyPhotos here rather than beside
+// it — one renderer of that region, so a file this writes and a file the demo
+// resets are the same shape by construction rather than by agreement.
+export function buildCaseInput({
+  exchangeId,
+  title = null,
+  body = null,
+  price = 200,
+  photos = false,
+  messages = false,
+  now = Date.now(),
+} = {}) {
+  if (exchangeId == null || String(exchangeId) === "") {
+    throw new Error("buildCaseInput needs an exchangeId — the case file is named after it");
+  }
+  const listingTitle = title ?? `Offer ${exchangeId}`;
+  // A body defaults to the title rather than to nothing: the model reads the
+  // listing as what was promised, and an empty promise is not a neutral one.
+  const listingBody = body ?? listingTitle;
+  const thread = messages
+    ? `[\n    { "from": "buyer", "at": ${now}, "text": ${JSON.stringify(OPENING_COMPLAINT)} }\n  ]`
+    : "[]";
+
+  const text = `{
+  "exchangeId": ${JSON.stringify(String(exchangeId))},
+  "photos": [],
+  "messages": ${thread},
+  "listing": {
+    "title": ${JSON.stringify(listingTitle)},
+    "body": ${JSON.stringify(listingBody)},
+    "priceText": ${JSON.stringify(String(price))}
+  }
+}
+`;
+  return photos ? applyPhotos(text, OPENING_ROUND) : text;
+}

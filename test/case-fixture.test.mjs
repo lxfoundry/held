@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ROOT } from "../src/env.mjs";
 import { assembleBundle } from "../src/evidence.mjs";
-import { applyPhotos, photoPathsFor, roundAdding, OPENING_ROUND, PHOTOS, ROUNDS, ROUND_NUMBER } from "../src/case-fixture.mjs";
+import { applyPhotos, buildCaseInput, photoPathsFor, roundAdding, OPENING_ROUND, PHOTOS, ROUNDS, ROUND_NUMBER } from "../src/case-fixture.mjs";
 
 // ⭐ The real committed fixture, not a copy shaped like one. The property under
 // test is that the edit is an exact inverse over *this file's* formatting, so a
@@ -168,4 +168,89 @@ test("every branch is the same case outside the swapped photograph", () => {
     "a bundle missing a kind would leave this asserting less than it claims",
   );
   for (const round of ["2b", "2c"]) assert.deepEqual(others(round), two, round);
+});
+
+// ⭐ A case input for an exchange that has none. The evidence a case carries
+// beyond the chain and the carrier — the listing, the thread, the photographs —
+// is the one part nothing can derive, so a new exchange has no case file and
+// scripts/mediate.mjs reads one unconditionally. This writes the smallest file
+// that is still a case, and the tests below fix what "smallest" means.
+const parse = (id, over = {}) => JSON.parse(buildCaseInput({ exchangeId: id, ...over }));
+
+test("a fresh case input is for the exchange it was asked for", () => {
+  assert.equal(parse("300").exchangeId, "300");
+});
+
+// ⚠️ The id is asserted on the *line*, not just the value. scripts/demo-states.mjs
+// copies a case to another exchange by replacing exactly this text, so a file
+// that serialised it differently would be unusable as a copy source.
+test("the exchange id is written on the line a copy replaces", () => {
+  assert.match(buildCaseInput({ exchangeId: "300" }), /"exchangeId": "300"/);
+});
+
+test("the title names the exchange, and the body repeats the title", () => {
+  const { listing } = parse("300");
+  assert.equal(listing.title, "Offer 300");
+  assert.equal(listing.body, "Offer 300");
+});
+
+test("a title given without a body becomes both", () => {
+  const { listing } = parse("300", { title: "Teak bench" });
+  assert.equal(listing.title, "Teak bench");
+  assert.equal(listing.body, "Teak bench");
+});
+
+test("a body given is kept beside the title rather than replacing it", () => {
+  const { listing } = parse("300", { title: "Teak bench", body: "Weathered, collected from the shed" });
+  assert.equal(listing.title, "Teak bench");
+  assert.equal(listing.body, "Weathered, collected from the shed");
+});
+
+test("the price defaults to 200 and is written as the text a listing shows", () => {
+  assert.equal(parse("300").listing.priceText, "200");
+  assert.equal(parse("300", { price: 75 }).listing.priceText, "75");
+});
+
+// A case with neither is still a case: src/demo-states.mjs writes listing-only
+// inputs for the purchases that only need a card on screen.
+test("photographs and messages are absent unless they are asked for", () => {
+  const input = parse("300");
+  assert.deepEqual(input.photos, []);
+  assert.deepEqual(input.messages, []);
+});
+
+test("asking for a photograph gives the one the opening round holds", () => {
+  const input = parse("300", { photos: true });
+  assert.deepEqual(input.photos.map((p) => p.path), photoPathsFor(OPENING_ROUND));
+  assert.deepEqual(input.photos[0], PHOTOS.inner);
+});
+
+test("asking for messages gives the buyer's complaint and nothing from the seller", () => {
+  const input = parse("300", { messages: true, now: 1788288220000 });
+  assert.equal(input.messages.length, 1);
+  assert.deepEqual(input.messages[0], {
+    from: "buyer",
+    at: 1788288220000,
+    text: "It arrived today. One box has a badly crushed corner, split right open. That isn't what I paid for.",
+  });
+});
+
+// ⭐ The property that makes the file usable rather than merely valid: the
+// buyer's "Add a photo" and scripts/demo-reset.mjs both move a case between
+// rounds through applyPhotos, which edits one region of the *text*. A file
+// whose photos array it could not find would parse fine and be inert.
+test("a fresh case input can be moved between rounds like a committed one", () => {
+  for (const photos of [false, true]) {
+    const text = buildCaseInput({ exchangeId: "300", photos });
+    for (const round of Object.keys(ROUNDS)) {
+      const moved = JSON.parse(applyPhotos(text, round));
+      assert.deepEqual(moved.photos.map((p) => p.path), photoPathsFor(round), `photos:${photos} round:${round}`);
+      assert.equal(moved.exchangeId, "300");
+    }
+  }
+});
+
+test("an exchange id is required, because the file is named after it", () => {
+  assert.throws(() => buildCaseInput({}), /exchangeId/);
+  assert.throws(() => buildCaseInput({ exchangeId: "" }), /exchangeId/);
 });

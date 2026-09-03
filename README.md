@@ -387,6 +387,29 @@ with no case at all still needs the `listing` block on its own. **A purchase who
 no such file is omitted from the list, and logged loudly** — never rendered half-drawn with a blank
 title and no price.
 
+### `npm run new-case`
+
+The evidence a case carries divides in two. The tracking comes from the carrier and the offer terms
+come from the chain, so both arrive on their own for any exchange that exists. The listing, the
+message thread and the photographs came from people, and nothing can derive them — so a freshly
+seeded exchange has **no case file at all**, and `npm run mediate`, which reads one
+unconditionally, stops on it. This writes the smallest file that is still a case:
+
+```bash
+npm run new-case -- 300                                    # report, change nothing
+npm run new-case -- 300 --title "Teak bench" --price 75    # a listing of your own
+npm run new-case -- 300 --photos --messages --execute      # with opening evidence, written
+```
+
+The title defaults to `Offer <exchangeId>`, the body to the title, and the price to `200`.
+`--photos` and `--messages` take **no value**: they attach the demonstrated case's own opening
+evidence — the photograph of the damaged item, and the buyer saying it arrived that way — which is
+what a mediation needs to have something to ask about. Anything else is a text editor's job, and
+the file is small enough to be one.
+
+It **never overwrites an existing case**, because the cost of a mistyped id is replacing evidence a
+recorded round is keyed on: the bundle hash moves, and a replay silently becomes a live call.
+
 ### `npm run demo-states`
 
 The view is a pure read over three stores, so every screen it can draw is some arrangement of those
