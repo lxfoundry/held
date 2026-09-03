@@ -71,6 +71,12 @@ export const BUYER_STRINGS = {
   // as unavailable. Neutral, and it names nothing an operator would recognise.
   purchase_unavailable: "This purchase can't be shown right now.",
 
+  // ⚠️ Not a parcel state — the absence of one. Every other line here is a
+  // claim about where the parcel is, and this is what the screen says when
+  // nothing has been scanned and there is no snapshot to read. Deliberately
+  // without "yet": a finalised purchase draws this too, and there is nothing
+  // still to come for it.
+  no_tracking: "We don't have tracking for this",
   on_its_way: "On its way",
   needs_you: "The courier couldn't deliver it — it needs you",
   waiting_for_collection: "It's waiting for you to collect",
@@ -182,12 +188,22 @@ export function parcelLine({ tracking, record }) {
     if (!finalised) return line("sorting_out");
   }
 
-  const milestone = tracking?.current ?? "pending";
-  if (tracking?.delivered) return line("arrived");
+  // ⚠️ An absence, not a state, and the same fall-through moneyLine's outcome
+  // branch exists to close. Every line below is a positive claim about a
+  // parcel and the last of them is unconditional, so a record whose tracker
+  // resolves to no snapshot — cleaned up, never registered, or an EVENTS_DIR
+  // pointing somewhere else — read "On its way" about a parcel nothing has
+  // scanned, and on a finalised record it contradicted the money line above
+  // it. A tracker that exists and has simply not been scanned yet is a
+  // different thing and still reads "On its way".
+  if (tracking == null) return line("no_tracking");
+
+  const milestone = tracking.current ?? "pending";
+  if (tracking.delivered) return line("arrived");
 
   // Both of these need the buyer to do something with the courier, and telling
   // them prominently is what earns the right to stand down rather than raise.
-  if (tracking?.everAvailableForPickup || milestone === "available_for_pickup") {
+  if (tracking.everAvailableForPickup || milestone === "available_for_pickup") {
     return line("waiting_for_collection");
   }
   if (milestone === "failed_attempt") return line("needs_you");

@@ -51,8 +51,24 @@ test("an outcome this module does not recognise states no ending at all", () => 
   }
 });
 
-test("a parcel with no events yet is on its way", () => {
-  assert.equal(parcelLine({ tracking: null, record: record() }).key, "on_its_way");
+// I-7: the same fall-through I-6 fixes on the money line, unfixed on this one.
+// Every row of the parcel table is a positive claim and the last of them is
+// unconditional, so a record whose tracker resolves to no snapshot at all
+// asserted "On its way" about a parcel nothing has scanned — and on a finalised
+// record it said so directly beneath "Seller has been paid".
+test("no tracking at all states no parcel state", () => {
+  assert.equal(parcelLine({ tracking: null, record: record() }).key, "no_tracking");
+  assert.equal(
+    parcelLine({ tracking: null, record: record({ finalisedAt: 1, outcome: "paid" }) }).key,
+    "no_tracking",
+    "a finalised purchase must not claim the parcel is moving"
+  );
+});
+
+// ⚠️ A tracker that exists and has not been scanned yet, which is a different
+// thing from no tracker at all — the assertion about that moved to the test
+// above when the two stopped sharing an answer.
+test("a registered parcel with no events yet is on its way", () => {
   assert.equal(parcelLine({ tracking: tracking({ current: "pending" }), record: record() }).key, "on_its_way");
 });
 

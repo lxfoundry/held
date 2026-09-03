@@ -123,6 +123,7 @@ It is the only ending both parties chose, and the only one worth saying anything
 
 | Condition | Copy |
 |---|---|
+| **no tracking at all** | We don't have tracking for this |
 | in transit | On its way |
 | `failed_attempt` | The courier couldn't deliver it — it needs you |
 | `available_for_pickup` | It's waiting for you to collect |
@@ -138,6 +139,15 @@ process still running — once `finalisedAt` is set, both are false, and `parcel
 to whatever the tracking data shows beneath them (a delivered parcel then reads "It arrived"). "It
 hasn't arrived. We've raised this for you." states what happened rather than what is still open; it
 remains true after settlement and is not conditioned on `finalisedAt` at all.
+
+⚠️ **An absence is not a state, and is not drawn as one.** Every row but the first states where the
+parcel is. A record whose `trackerId` resolves to no snapshot — never registered, cleaned up, or an
+`EVENTS_DIR` pointing elsewhere — supports none of those claims, and the in-transit row is the
+fall-through, so it read *"On its way"* about a parcel nothing has scanned. On a finalised record it
+sat directly beneath *"Seller has been paid."* This is the same rule §4's `outcome` fallback states,
+on the other line: **what the store does not hold is not asserted.** ⭐ A tracker that exists and has
+simply not been scanned yet is a different thing — that is `pending`, and it still reads *"On its
+way"*.
 
 ## 5 · The delivered state, and what the buyer owes
 
