@@ -282,6 +282,24 @@ the photographs the buyer has already sent, and those photographs as thumbnails.
 exactly the same window as the mediation block — a dispute exists and nothing has settled — and only
 while the case holds at least one photograph. See §8.4.
 
+⭐ **A thumbnail opens.** It is 84px square and it is the thing being argued about, so pressing one
+lays that photograph over the page at full size. Dismissed by pressing anywhere on it or by Escape,
+and the thumbnail that opened it takes focus back.
+
+Three properties, and each answers a way this would otherwise be wrong:
+
+- **A press, not a hover.** Hover has no answer on a touch screen, and a picture that covers the page
+  because the pointer crossed it is a worse failure than one that needs a press. The thumbnails are
+  reachable by keyboard and open on Enter or Space for the same reason.
+- ⚠️ **It is drawn outside the app root.** The screen redraws whenever the model changes — a
+  photograph added, a round answered — and an overlay inside that root would vanish mid-look, on a
+  tick the buyer did not cause and cannot see. It is attached to the document once and outlives every
+  redraw.
+- **It carries no copy of its own.** Every string on this screen resolves through `BUYER_STRINGS`
+  ([§2](#2--the-vocabulary-rule)), and a close label invented in the page would be the single
+  exception — one word in the one place the vocabulary test cannot reach it. The enlarged photograph
+  carries the model's own `alt`, and the ways out are the ones a full-screen image already implies.
+
 ## 8 · Actions
 
 | Method | Path | Calls | Guard |
