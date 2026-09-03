@@ -335,11 +335,84 @@ function evidenceBlock(evidence) {
     // A photograph that cannot be loaded leaves its own gap rather than a
     // broken-image icon, which reads as a bug in the product.
     img.addEventListener("error", () => img.remove());
+    // ⭐ A thumbnail is 84px square and the evidence is the thing being argued
+    // about, so it has to be openable. Click rather than hover: hover has no
+    // answer on a touch screen, and a picture that covers the page because the
+    // pointer crossed it is a worse failure than one that needs a press.
+    img.tabIndex = 0;
+    img.setAttribute("role", "button");
+    img.addEventListener("click", () => showEnlarged(src, evidence.alt));
+    img.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      // Space scrolls the page otherwise, which moves the thing being opened.
+      e.preventDefault();
+      showEnlarged(src, evidence.alt);
+    });
     strip.appendChild(img);
   }
   box.appendChild(strip);
   return box;
 }
+
+// ⭐ The enlarged photograph lives outside #app, and has to. render() replaces
+// the whole of #app whenever the model changes — a photograph added, a round
+// answered, an action settling — and an overlay inside it would vanish
+// mid-look, on a tick the buyer did not cause and cannot see. Appended to the
+// body once, it outlives every redraw.
+//
+// ⚠️ No copy of its own, deliberately. Every string on this screen is the
+// model's, and a close label invented here would be the one exception; the
+// image carries the model's own alt text, and dismissal is the scrim, a press
+// anywhere, or Escape.
+const enlarged = document.createElement("div");
+enlarged.className = "enlarged";
+enlarged.hidden = true;
+enlarged.setAttribute("role", "dialog");
+enlarged.setAttribute("aria-modal", "true");
+enlarged.tabIndex = -1;
+const enlargedImg = document.createElement("img");
+enlarged.appendChild(enlargedImg);
+document.body.appendChild(enlarged);
+
+// What had focus when it opened, so closing puts the buyer back on the
+// thumbnail they pressed rather than at the top of the page.
+let openedFrom = null;
+
+function showEnlarged(src, alt) {
+  enlargedImg.src = src;
+  enlargedImg.alt = alt;
+  openedFrom = document.activeElement;
+  enlarged.hidden = false;
+  enlarged.focus();
+}
+
+function hideEnlarged() {
+  if (enlarged.hidden) return;
+  enlarged.hidden = true;
+  // ⚠️ Guarded, because a redraw while this was open can have removed the
+  // element that opened it — focusing a detached node throws, and the throw
+  // would leave the overlay closed with the page unusable behind it.
+  if (openedFrom && document.contains(openedFrom)) openedFrom.focus();
+  openedFrom = null;
+}
+
+enlarged.addEventListener("click", hideEnlarged);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    hideEnlarged();
+    return;
+  }
+  // ⚠️ aria-modal asserts that everything behind this is inert, and Tab is
+  // where that assertion gets tested. The overlay holds nothing focusable, so
+  // without this a Tab press walks focus onto the buttons and thumbnails still
+  // in #app behind the scrim — controls the buyer cannot see, cannot have meant
+  // to reach, and one of which settles a case. Focus is held rather than
+  // cycled, because there is nothing here to cycle between.
+  if (e.key === "Tab" && !enlarged.hidden) {
+    e.preventDefault();
+    enlarged.focus();
+  }
+});
 
 function actionsBlock(actions) {
   const wrap = document.createElement("div");
