@@ -273,10 +273,10 @@ test("an unknown photo id raised by the action answers 404, not 500", async () =
 // would exercise a shape no real case input has.
 const committed = readFileSync(join(ROOT, "fixtures/case/241.json"), "utf8");
 const opening = applyPhotos(committed, 1);
-// The same case with its outer-carton slot already filled by the other branch.
-// src/case-fixture.mjs's PHOTOS table gives `carton` and `carton-crushed` the
-// same id — "carton" — because the outer carton is one evidence slot and the two
-// photographs are two branches competing for it. Two tests below turn on that.
+// The same case with its outer-carton slot already filled by another branch.
+// src/case-fixture.mjs's PHOTOS table gives every carton photograph the same
+// id — "carton" — because the outer carton is one evidence slot and the
+// photographs are branches competing for it. Two tests below turn on that.
 const otherBranch = applyPhotos(committed, "2b");
 
 function realPhotosApp(seed = opening) {
@@ -331,10 +331,10 @@ test("end to end: attaching the same photograph twice leaves the file untouched,
 });
 
 // The rule a path-keyed dedup used to defend, now answered structurally and
-// confirmed by the PHOTOS table above: both branches carry the id "carton", so
-// treating that id as the identity of "already here" would block the intact
-// carton from ever reaching a case the crushed one had filled.
-test("end to end: the other branch fills the taken slot rather than being blocked by it", async () => {
+// confirmed by the PHOTOS table above: every branch photograph carries the id
+// "carton", so treating that id as the identity of "already here" would block
+// the intact carton from ever reaching a case a crushed one had filled.
+test("end to end: another branch fills the taken slot rather than being blocked by it", async () => {
   const { handler, caseInput } = realPhotosApp(otherBranch);
   const res = await addPhoto(handler, "carton");
   assert.equal(res.status, 200);

@@ -58,17 +58,13 @@ describes an answer the person cannot give — they are left holding a control t
 does less than your question asks of them, and no way to tell you so.
 
 Ask about what is actually in dispute. Where the parties disagree about *how*
-something happened — one says it left in good condition, the other says it
-arrived damaged — what separates them is evidence about the journey: how it was
-packed, and what it travelled in. A fuller account of the damage itself speaks
-only to size, which is usually the thing you can already estimate from what you
-have.
+something happened, ask for what would separate their two accounts — not for
+more detail about the part they already agree on.
 
 Prefer a photograph of something not yet pictured over a sharper view of what is
 already in front of you. A second look at the same subject usually confirms what
-the first one showed; it is what nobody has photographed — how the parcel was
-packed and what it travelled in, the parts of the order not yet shown — that can
-carry an answer you do not already have.
+the first one showed; it is what nobody has photographed that can carry an
+answer you do not already have.
 
 If two photographs would each move the split, ask for the more decisive one.
 What the other would have settled is what a further round is for.

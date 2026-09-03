@@ -271,7 +271,7 @@ URL:
   the view can render.
 - `?photo=<photoId>` — **optional.** Which photograph the "add evidence" action attaches, once a
   dispute is open and evidence has been requested. Absent, the action still works and attaches the
-  first photograph the rounds declare; the parameter selects the other branch of the damage case.
+  first photograph the rounds declare; the parameter selects one of the damage case's other branches.
   It changes what a press attaches and nothing about what is drawn — the model is identical either
   way. The id names one of the photographs a case can be *added*; the opening round's own evidence
   is already on file and is refused like anything else, leaving the case file alone.
@@ -428,8 +428,9 @@ none carries a pre-signed authorisation, so an action pressed on one fails — w
 to see the "that didn't go through" screen, and is itself one of the states. The exception is
 `99999907`, where "Add a photo" genuinely rewrites the local evidence file exactly as it does for a
 real case: open it, press the button, and the evidence block goes from one photograph to two. Add
-`&photo=carton-crushed` to attach the crushed carton instead — that is the comparison the two
-branches exist for.
+`&photo=carton-crushed` for the crushed carton, or `&photo=carton-crushed-padded` for that
+carton opened with the void fill still in it — the comparison the three branches exist for, specified
+in [`docs/specs/evidence-and-mediation.md`](docs/specs/evidence-and-mediation.md) §7.1.
 
 The eight-digit id range cannot collide with an id the protocol assigned, and it is what `--clean`
 matches on. Everything the script writes is gitignored by name — the exchange and case records land

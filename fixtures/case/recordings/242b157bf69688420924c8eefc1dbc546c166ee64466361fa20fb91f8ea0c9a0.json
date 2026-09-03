@@ -5,7 +5,7 @@
     "status": "needs_evidence",
     "findings": [
       {
-        "statement": "Before buying, the buyer asked specifically about box condition and said it was most of what they were paying for; the seller answered that the sets had been stored in a cupboard since new and the boxes were fine.",
+        "statement": "Before buying, the buyer asked specifically about box condition and said it was most of what they were paying for, and the seller answered that the boxes were fine and the sets had been stored in a cupboard since new.",
         "evidenceIds": [
           "msg-1",
           "msg-2"
@@ -18,68 +18,56 @@
         ]
       },
       {
-        "statement": "The parcel was handed to the carrier on 26 August and delivered on 28 August with no exception or damage event recorded along the way; carrier records show movement only and say nothing about condition.",
-        "evidenceIds": [
-          "trk-1",
-          "trk-5",
-          "trk-7"
-        ]
-      },
-      {
-        "statement": "The buyer reported a badly crushed, split corner on one box the same day the parcel was delivered.",
+        "statement": "The parcel was delivered on 28 August, and the buyer reported a badly crushed and split box corner the same afternoon, a few hours later.",
         "evidenceIds": [
           "trk-7",
           "msg-3"
         ]
       },
       {
-        "statement": "The photograph of the item shows a single London Architecture box with a crushed and torn upper corner and some scuffing along the edges; the rest of the box and its printing appear intact.",
+        "statement": "The photograph of the set shows one box with a crushed and split upper corner and scuffing along the edges; the rest of the box front appears sound.",
         "evidenceIds": [
           "pho-1"
         ]
       },
       {
-        "statement": "The seller maintains the sets were in good condition when sent and were packed carefully, but no picture of the packing or the outer parcel has been provided by either side.",
+        "statement": "The seller maintains the item was in good condition when it left them and was packed carefully; no photograph of the packing or of the sets before posting has been provided.",
         "evidenceIds": [
           "msg-4"
         ]
       },
       {
-        "statement": "The buyer raised the problem immediately after the purchase money was released, well inside the allowed window.",
+        "statement": "Only one of the four sets is pictured, so nothing in the file speaks to the condition of the other three boxes.",
         "evidenceIds": [
-          "off-1"
+          "pho-1",
+          "lst-1"
         ]
       }
     ],
     "provisional": {
-      "buyerPercent": 15,
-      "reasoning": "One of four boxes arrived with a crushed, split corner, which is not the condition promised before the sale. The damage is confined to a corner of a single box and does not affect the other three sets or the contents, so it reduces the value of about a quarter of the order rather than the whole of it. A fifteen per cent share of the money being held reflects that loss of value."
+      "buyerPercent": 25,
+      "reasoning": "The seller gave a clear assurance about box condition in answer to a direct question, and one of the four boxes arrived with a crushed, split corner. Since box condition was a stated part of what was being paid for, a partial refund reflecting the damage to one box out of four is fair, with the contents and the other three boxes apparently unaffected."
     },
     "requests": [
       {
-        "what": "One photograph of the outer shipping parcel exactly as it arrived, with the flaps open so the padding or filling inside it can be seen next to where the sets sat.",
-        "whyItMatters": "The two of you agree the box has a crushed corner but not on how it got that way. The state of the outer parcel and what was packed around the sets is the one thing that shows whether the corner took a knock during the journey or was already like that when it was sent. Nobody has pictured the outer parcel yet, and it is the only item that speaks to the journey itself.",
+        "what": "One photograph of the outer shipping package the sets arrived in — the whole carton, including any padding or filling still inside it, so its condition and how the sets were packed can be seen.",
+        "whyItMatters": "You and the seller disagree about how the corner came to be crushed: whether it happened after the parcel left the seller or before. The state of the outer package and what was used to pad the sets inside it is the one thing that can tell those two accounts apart, and nobody has photographed it yet.",
         "whoCanProvide": "buyer",
         "wouldChange": [
           {
-            "answer": "The outer parcel is visibly crushed or punctured near the matching corner and there is little or no padding around the sets",
-            "implies": "The damage happened in transit because the sets were not protected well enough, which is the sender's responsibility",
-            "split": 25
-          },
-          {
-            "answer": "The outer parcel is undamaged and the sets were well padded",
-            "implies": "The corner damage most likely predated shipping, so the description given before the sale was inaccurate",
+            "answer": "The outer package shows heavy crushing or a hole at the corresponding corner, with padding present inside",
+            "implies": "The damage happened in transit despite reasonable packing; the seller's assurance was honest but the buyer still received a box that is not as described",
             "split": 22
           },
           {
-            "answer": "The outer parcel shows heavy impact damage despite generous padding around the sets",
-            "implies": "The sender packed properly and the harm was done by rough handling in transit, which neither party controlled",
-            "split": 8
+            "answer": "The outer package is intact and undamaged, or the sets were sent with little or no padding",
+            "implies": "The damage was either already present when posted or caused by the way it was packed, both of which sit with the seller against their assurance that the boxes were fine",
+            "split": 38
           },
           {
-            "answer": "No such photograph can be produced because the outer parcel was discarded",
-            "implies": "The cause stays unresolved and the split rests on the size of the shortfall against what was promised",
-            "split": 15
+            "answer": "No photograph is provided",
+            "implies": "The case rests on the single photograph of the damaged box and the seller's pre-sale assurance",
+            "split": 25
           }
         ]
       }

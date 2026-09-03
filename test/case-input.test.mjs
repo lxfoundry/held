@@ -28,16 +28,16 @@ const committed = readFileSync(join(ROOT, "fixtures/case/241.json"), "utf8");
 // file's formatting rather than a tidied copy of it.
 const opening = applyPhotos(committed, 1);
 
-// ⚠️ The case with its outer-carton slot already filled by the other branch.
-// src/case-fixture.mjs's PHOTOS table gives `carton` and `carton-crushed` the
-// same id — "carton" — because the outer carton is one evidence slot and the two
-// photographs are two branches competing for it. Two tests below turn on that,
+// ⚠️ The case with its outer-carton slot already filled by another branch.
+// src/case-fixture.mjs's PHOTOS table gives every carton photograph the same
+// id — "carton" — because the outer carton is one evidence slot and the
+// photographs are branches competing for it. Two tests below turn on that,
 // so it is checked here rather than described in a comment: a table that stopped
 // sharing the id would fail loudly instead of leaving those tests asserting
 // nothing.
 const otherBranch = applyPhotos(committed, "2b");
 
-test("the two branch photographs share one evidence slot", () => {
+test("a branch photograph takes the one evidence slot", () => {
   const [, carton] = JSON.parse(otherBranch).photos;
   assert.equal(carton.id, "carton");
   assert.equal(carton.path, "fixtures/case/photos/carton-crushed.jpg");
@@ -65,7 +65,7 @@ test("a photograph is written in the shape scripts/mediate.mjs reads", () => {
   assert.deepEqual(store.read("241").photos, record.photos);
 });
 
-test("either branch photograph can be attached", () => {
+test("a branch photograph is attached under the slot's id, not the file's stem", () => {
   const store = createCaseInputStore(freshDir());
   const record = store.addPhoto("241", "carton-crushed");
   // The slot's id, not the file's stem — see the shared-slot test above.
@@ -113,12 +113,12 @@ test("adding an already-present photograph is a no-op, not a duplicate", () => {
 });
 
 // The rule this replaces a path-keyed dedup with, and main's own data confirms
-// the hazard it was written against: PHOTOS gives both branch photographs the id
+// the hazard it was written against: PHOTOS gives every branch photograph the id
 // "carton", so treating that id as the identity of "already here" would block
-// the intact carton from ever reaching a case the crushed one had filled.
+// the intact carton from ever reaching a case a crushed one had filled.
 // Setting the whole slot list from the round answers it structurally — the
-// branch that arrives fills the slot, and neither branch can block the other.
-test("the other branch fills the taken slot rather than being blocked by it", () => {
+// branch that arrives fills the slot, and no branch can block another.
+test("another branch fills the taken slot rather than being blocked by it", () => {
   const dir = freshDir(otherBranch);
   const record = createCaseInputStore(dir).addPhoto("241", "carton");
 
@@ -129,7 +129,7 @@ test("the other branch fills the taken slot rather than being blocked by it", ()
   );
 });
 
-// ⚠️ The other half of the same rule. The two branches are one slot, so the
+// ⚠️ The other half of the same rule. The branches are one slot, so the
 // arriving one replaces rather than joins: a case holding both an intact and a
 // crushed outer carton is evidence that contradicts itself, and it would put two
 // photographs where every comparison this case supports assumes one.
@@ -264,7 +264,7 @@ test("the case the demonstration stands at is still moved, and a repeat is still
 
 // ⚠️ The guard asks whether the case stands at *a* round, never at a
 // particular one — so it must not have narrowed the branch swap §8.3 requires.
-// The two tests above ("the other branch fills the taken slot", "attaching the
+// The two tests above ("another branch fills the taken slot", "attaching the
 // branch already in the slot changes nothing") are the ones that would fail if
 // it had; this states the reason they still pass.
 test("a case standing at any known round is still this case", () => {
@@ -278,12 +278,15 @@ test("a case standing at any known round is still this case", () => {
   );
 });
 
-// Either branch reaches from the opening round, which is what the ?photo= URL
-// selects on the demonstrated case.
-test("either branch is reachable from the opening round", () => {
+// Every branch reaches from the opening round, which is what the ?photo= URL
+// selects on the demonstrated case. Each name README.md documents on that URL
+// is here, so a branch added to the rounds table but never reachable through
+// the store fails here rather than on the operator who types it.
+test("every branch is reachable from the opening round", () => {
   for (const [name, expected] of [
     ["carton", "fixtures/case/photos/carton.jpg"],
     ["carton-crushed", "fixtures/case/photos/carton-crushed.jpg"],
+    ["carton-crushed-padded", "fixtures/case/photos/carton-crushed-padded.jpg"],
   ]) {
     const store = createCaseInputStore(freshDir());
     const photos = store.addPhoto("241", name).photos;

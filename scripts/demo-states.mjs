@@ -34,7 +34,7 @@ import { loadEnv, ROOT } from "../src/env.mjs";
 import { createExchangeStore } from "../src/exchanges.mjs";
 import { createStore } from "../src/store.mjs";
 import { createCaseStore, createRecordingStore } from "../src/cases.mjs";
-import { applyPhotos } from "../src/case-fixture.mjs";
+import { addablePhotos, applyPhotos } from "../src/case-fixture.mjs";
 import { CATALOGUE, DEMO_TRACKERS, caseRecordFor, recordFor } from "../src/demo-states.mjs";
 
 const ok = (line) => console.log(`✓ ${line}`);
@@ -193,7 +193,12 @@ console.log("  npm run buyer");
 console.log("  http://127.0.0.1:3100/");
 console.log("");
 console.log("One card per state. 99999907 answers a question — open it with a photograph named:");
-console.log("  http://127.0.0.1:3100/?purchase=99999907&photo=carton");
+// Read off the rounds table rather than typed out, so a branch added there is a
+// branch this hint offers. The names are the comparison in
+// docs/specs/evidence-and-mediation.md §7.1.
+for (const name of addablePhotos()) {
+  console.log(`  http://127.0.0.1:3100/?purchase=99999907&photo=${name}`);
+}
 console.log("");
 console.log("Remove them all again with:");
 console.log("  npm run demo-states -- --clean --execute");
