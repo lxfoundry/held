@@ -6,6 +6,11 @@
 
 Consumer protection that doesn't need a platform.
 
+▶️ **[Held in 40 seconds](docs/medias/video-by-boson.mp4)** — an illustrated explainer, made by Boson
+Protocol. MP4, 1 MB; GitHub offers it as a download rather than playing it in the page.
+
+![Held on one page: the watchdog, the mediator and the clerk; tracking, Held, the model and Boson Protocol wired together; and the four rungs of the escalation ladder](docs/medias/screenshot.jpeg)
+
 ---
 
 ## 1. Context
